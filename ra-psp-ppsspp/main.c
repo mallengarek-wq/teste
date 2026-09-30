@@ -1,20 +1,18 @@
 #include <pspkernel.h>
 #include <pspctrl.h>
 #include <pspiofilemgr.h>
-#include <string.h>
 
-PSP_MODULE_INFO("RA-PSP PPSSPP Probe", 0, 1, 1);
-PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER);
+PSP_MODULE_INFO("RA-PSP PPSSPP Probe", PSP_MODULE_USER, 1, 3);
+PSP_NO_CREATE_MAIN_THREAD();
 
 #define LOG_PATH "ms0:/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.log"
 #define COMBO (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT)
 
-static volatile int g_running;
-
-static void append_log(const char *text) {
+static void write_line(const char *text, int len) {
     SceUID fd = sceIoOpen(LOG_PATH, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777);
     if (fd >= 0) {
-        sceIoWrite(fd, text, (SceSize)strlen(text));
+        sceIoWrite(fd, text, len);
+        sceIoWrite(fd, "\r\n", 2);
         sceIoClose(fd);
     }
 }
@@ -26,34 +24,35 @@ static int worker(SceSize args, void *argp) {
     (void)args;
     (void)argp;
 
-    append_log("RA-PSP PPSSPP probe: worker started\r\n");
+    write_line("RA-PSP v0.3: worker started", 28);
+
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
 
-    while (g_running) {
-        memset(&pad, 0, sizeof(pad));
+    for (;;) {
+        pad.Buttons = 0;
+        pad.Lx = 128;
+        pad.Ly = 128;
         sceCtrlPeekBufferPositive(&pad, 1);
 
         if ((pad.Buttons & COMBO) == COMBO) {
             if (!combo_latched) {
                 combo_latched = 1;
-                append_log("HOTKEY OK: L+R+SELECT detected\r\n");
+                write_line("HOTKEY OK: L+R+SELECT detected", 29);
             }
         } else {
             combo_latched = 0;
         }
 
         if ((pad.Buttons & PSP_CTRL_TRIANGLE) && !(prev_buttons & PSP_CTRL_TRIANGLE))
-            append_log("BUTTON OK: TRIANGLE detected\r\n");
+            write_line("BUTTON OK: TRIANGLE detected", 28);
         if ((pad.Buttons & PSP_CTRL_CIRCLE) && !(prev_buttons & PSP_CTRL_CIRCLE))
-            append_log("BUTTON OK: CIRCLE detected\r\n");
+            write_line("BUTTON OK: CIRCLE detected", 26);
 
         prev_buttons = pad.Buttons;
         sceKernelDelayThread(20000);
     }
 
-    append_log("RA-PSP PPSSPP probe: worker stopped\r\n");
-    sceKernelExitDeleteThread(0);
     return 0;
 }
 
@@ -62,17 +61,18 @@ int module_start(SceSize args, void *argp) {
     (void)args;
     (void)argp;
 
-    g_running = 1;
-    append_log("RA-PSP PPSSPP probe: module_start\r\n");
+    write_line("RA-PSP v0.3: module_start", 25);
 
     th = sceKernelCreateThread("RA-PSP Probe Worker", worker, 0x30, 0x2000, PSP_THREAD_ATTR_USER, 0);
     if (th < 0) {
-        append_log("ERROR: sceKernelCreateThread failed\r\n");
+        write_line("ERROR: sceKernelCreateThread failed", 35);
         return 0;
     }
 
     if (sceKernelStartThread(th, 0, 0) < 0)
-        append_log("ERROR: sceKernelStartThread failed\r\n");
+        write_line("ERROR: sceKernelStartThread failed", 34);
+    else
+        write_line("RA-PSP v0.3: worker launched", 29);
 
     return 0;
 }
@@ -80,7 +80,6 @@ int module_start(SceSize args, void *argp) {
 int module_stop(SceSize args, void *argp) {
     (void)args;
     (void)argp;
-    g_running = 0;
-    append_log("RA-PSP PPSSPP probe: module_stop\r\n");
+    write_line("RA-PSP v0.3: module_stop", 24);
     return 0;
 }
