@@ -2,366 +2,227 @@
 #include <pspdebug.h>
 #include <pspctrl.h>
 #include <pspdisplay.h>
+#include <pspgu.h>
 #include <pspiofilemgr.h>
 #include <stdio.h>
 #include <string.h>
 
-PSP_MODULE_INFO("RA-PSP Native UI", PSP_MODULE_USER, 1, 5);
+PSP_MODULE_INFO("RA-PSP Native UI", PSP_MODULE_USER, 1, 6);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
 
 #define LOG_PATH "ms0:/PSP/RA_SIM_LOG.txt"
+#define BUF_WIDTH 512
+#define SCR_W 480
+#define SCR_H 272
+#define FB_SIZE (BUF_WIDTH*SCR_H*4)
 
-/* ABGR colors used by pspDebugScreen */
-#define C_WHITE      0x00F7FAFF
-#define C_TEXT       0x00DCE8F5
-#define C_SOFT       0x00AABCD0
-#define C_DIM        0x006F8194
-#define C_ICE        0x00FFD8A8
-#define C_BLUE       0x00F0C892
-#define C_GREEN      0x009BE4AF
-#define C_YELLOW     0x0070D8F8
-#define C_LOCK       0x00798B9E
-#define BG           0x0033261A
-#define BG_TOP       0x00513D28
-#define BG_PANEL     0x00433224
-#define BG_ROW       0x00473527
-#define BG_FOCUS     0x00926B39
-#define BG_TAB       0x0058452E
-#define BG_POP       0x00654B2F
+#define C_WHITE  0x00FFFFFF
+#define C_SOFT   0x00D7E7F5
+#define C_DIM    0x008FA6BC
+#define C_BLUE   0x00F3D7A1
+#define C_GREEN  0x009FE5C0
+#define C_YELLOW 0x0078D9FF
+#define C_LOCK   0x00798A9C
 
-static int progress = 0;
-static int unlocked = 0;
-static int queued = 0;
-static int synced = 0;
-static int online = 0;
-static int popup_frames = 0;
-static int dirty = 1;
-static int section = 1; /* 0 game, 1 achievements, 2 profile, 3 settings */
-static int item = 0;
-static int filter_mode = 0; /* all / unlocked / locked */
+static unsigned int __attribute__((aligned(16))) gu_list[262144];
+static void *fbp0 = 0;
+static void *fbp1 = (void*)FB_SIZE;
+static void *zbp  = (void*)(FB_SIZE*2);
 
-static const char *sections[] = {"GAME", "ACHIEVEMENTS", "PROFILE", "SETTINGS"};
-static const char *ach_names[] = {
-    "Another Possibility",
-    "Friends, Again",
-    "The Rumor Never Dies",
-    "City of Seven Sisters",
-    "Under the Same Moon",
-    "A Familiar Face"
-};
-static const char *ach_desc[] = {
-    "Cleared the game.",
-    "Reunited with all party members.",
-    "Witnessed the True End.",
-    "Explored all areas of Sumaru City.",
-    "Viewed every Snow Queen rumor.",
-    "Spoke with the mysterious cat."
-};
-static const int ach_points[] = {50, 30, 50, 20, 30, 10};
-static const int ach_static[] = {1, 1, 0, 1, 0, 1};
+static int progress=0, unlocked=0, queued=0, synced=0, online=0;
+static int popup_frames=0, item=0, filter_mode=0, dirty=1;
+static const char *ach_names[]={"Another Possibility","Friends, Again","The Rumor Never Dies","City of Seven Sisters","Under the Same Moon","A Familiar Face"};
+static const char *ach_desc[]={"Cleared the game.","Reunited with all party members.","Witnessed the True End.","Explored all areas of Sumaru City.","Viewed every Snow Queen rumor.","Spoke with the mysterious cat."};
+static const int ach_points[]={50,30,50,20,30,10};
+static const int ach_static[]={1,1,0,1,0,1};
 
-static void log_line(const char *s) {
-    SceUID fd = sceIoOpen(LOG_PATH, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777);
-    if (fd >= 0) {
-        sceIoWrite(fd, s, strlen(s));
-        sceIoWrite(fd, "\n", 1);
-        sceIoClose(fd);
+typedef struct { unsigned int color; short x,y,z; } Vtx;
+
+static void log_line(const char *s){ SceUID fd=sceIoOpen(LOG_PATH,PSP_O_WRONLY|PSP_O_CREAT|PSP_O_APPEND,0777); if(fd>=0){sceIoWrite(fd,s,strlen(s));sceIoWrite(fd,"\n",1);sceIoClose(fd);} }
+static int ach_unlocked(int i){ if(i==0 && unlocked) return 1; return ach_static[i]; }
+static int visible_count(void){ int i,n=0; for(i=0;i<6;i++){int u=ach_unlocked(i); if(filter_mode==0||(filter_mode==1&&u)||(filter_mode==2&&!u))n++;} return n; }
+static int visible_to_real(int v){ int i,n=0; for(i=0;i<6;i++){int u=ach_unlocked(i); if(filter_mode==0||(filter_mode==1&&u)||(filter_mode==2&&!u)){if(n==v)return i;n++;}} return 0; }
+
+static void rect(int x0,int y0,int x1,int y1,unsigned int color){
+    Vtx *v=(Vtx*)sceGuGetMemory(2*sizeof(Vtx));
+    v[0].color=color; v[0].x=x0; v[0].y=y0; v[0].z=0;
+    v[1].color=color; v[1].x=x1; v[1].y=y1; v[1].z=0;
+    sceGuDrawArray(GU_SPRITES,GU_COLOR_8888|GU_VERTEX_16BIT|GU_TRANSFORM_2D,2,0,v);
+}
+
+static void panel(int x0,int y0,int x1,int y1,unsigned int fill){
+    rect(x0,y0,x1,y1,fill);
+    rect(x0,y0,x1,y0+1,0x70DCEBFF);
+    rect(x0,y1-1,x1,y1,0x305A7690);
+}
+
+static void glow_box(int x0,int y0,int x1,int y1){
+    rect(x0-3,y0-3,x1+3,y1+3,0x204FA8E8);
+    rect(x0-2,y0-2,x1+2,y1+2,0x405EB9F3);
+    rect(x0-1,y0-1,x1+1,y1+1,0x7078C8FF);
+    rect(x0,y0,x1,y1,0xB05283B6);
+}
+
+static void draw_background(void){
+    int y;
+    for(y=0;y<SCR_H;y+=8){
+        unsigned int b=0xFF1A2C40 + ((unsigned int)(y/8)<<16);
+        rect(0,y,SCR_W,y+8,b);
     }
+    rect(0,0,SCR_W,32,0x50253E5B);
+    rect(0,248,SCR_W,272,0x70243A52);
+    rect(0,31,SCR_W,32,0x804E789A);
+    rect(0,247,SCR_W,248,0x804E789A);
+    rect(0,160,160,248,0x22192B3D);
+    rect(335,33,480,95,0x30283E57);
 }
 
-static void cls(void) {
-    pspDebugScreenSetBackColor(BG);
-    pspDebugScreenSetTextColor(C_WHITE);
-    pspDebugScreenClear();
+static void draw_header_graphics(void){
+    panel(18,42,145,92,0x80314963);
+    rect(22,46,141,88,0x90435B72);
+    rect(22,46,141,49,0xA07FD2FF);
+    panel(335,39,465,91,0x502A4058);
+    rect(213,70,315,78,0x6035485C);
+    rect(215,72,215+(progress>10?10:progress)*9,76,0xD089D9FF);
 }
 
-static void txt(int x, int y, unsigned int fg, unsigned int bg, const char *s) {
-    pspDebugScreenSetXY(x, y);
-    pspDebugScreenSetTextColor(fg);
-    pspDebugScreenSetBackColor(bg);
-    pspDebugScreenPrintf("%s", s);
+static void draw_tabs_graphics(void){
+    int x0=146;
+    panel(x0,98,x0+318,119,0x50314960);
+    if(filter_mode==0) glow_box(147,99,252,118);
+    if(filter_mode==1) glow_box(253,99,358,118);
+    if(filter_mode==2) glow_box(359,99,463,118);
 }
 
-static void hline(int y, unsigned int color) {
-    txt(0, y, color, BG, "------------------------------------------------------------");
-}
-
-static int ach_unlocked(int i) {
-    if (i == 2) return unlocked;
-    return ach_static[i];
-}
-
-static int visible_count(void) {
-    int i, n = 0;
-    for (i = 0; i < 6; ++i) {
-        int u = ach_unlocked(i);
-        if (filter_mode == 0 || (filter_mode == 1 && u) || (filter_mode == 2 && !u)) n++;
-    }
-    return n;
-}
-
-static int visible_to_real(int v) {
-    int i, n = 0;
-    for (i = 0; i < 6; ++i) {
-        int u = ach_unlocked(i);
-        if (filter_mode == 0 || (filter_mode == 1 && u) || (filter_mode == 2 && !u)) {
-            if (n == v) return i;
-            n++;
+static void draw_list_graphics(void){
+    int r,vis=visible_count();
+    for(r=0;r<vis && r<6;r++){
+        int y=126+r*19;
+        int idx=visible_to_real(r);
+        int u=ach_unlocked(idx);
+        if(r==item) glow_box(109,y,464,y+17);
+        else panel(109,y,464,y+17,u?0x402A4159:0x2824384C);
+        rect(116,y+2,140,y+15,u?0x905789A9:0x50323F4D);
+        if(u){
+            rect(425,y+5,434,y+13,0xC08BE0FF);
+            rect(428,y+2,431,y+16,0x908BE0FF);
+        }else{
+            rect(426,y+6,433,y+14,0x806E8195);
+            rect(428,y+3,431,y+8,0x806E8195);
         }
     }
-    return 0;
 }
 
-static int total_unlocked(void) {
-    int i, n = 0;
-    for (i = 0; i < 6; ++i) if (ach_unlocked(i)) n++;
-    return n;
+static void draw_popup_graphics(void){
+    if(popup_frames<=0) return;
+    glow_box(214,39,468,82);
+    rect(222,47,254,75,0xB06C9CC5);
+    rect(229,54,247,68,0xD08ED9FF);
 }
 
-static void draw_top(void) {
-    int i, x = 2;
-    txt(1, 0, C_WHITE, BG_TOP, " GAME  ");
-    txt(48, 0, C_TEXT, BG_TOP, online ? "3/14 17:26  WIFI" : "3/14 17:26  OFF ");
-    hline(1, C_DIM);
+static void gu_begin(void){
+    sceGuStart(GU_DIRECT,gu_list);
+    sceGuClearColor(0xFF17283A);
+    sceGuClearDepth(0);
+    sceGuClear(GU_COLOR_BUFFER_BIT|GU_DEPTH_BUFFER_BIT);
+    sceGuEnable(GU_BLEND);
+    sceGuBlendFunc(GU_ADD,GU_SRC_ALPHA,GU_ONE_MINUS_SRC_ALPHA,0,0);
+    sceGuDisable(GU_DEPTH_TEST);
+}
 
-    for (i = 0; i < 4; ++i) {
-        char b[22];
-        unsigned int fg = i == section ? C_WHITE : C_DIM;
-        unsigned int bg = i == section ? BG_FOCUS : BG;
-        snprintf(b, sizeof(b), " %s ", sections[i]);
-        txt(x, 2, fg, bg, b);
-        x += (int)strlen(sections[i]) + 4;
+static void gu_end_and_text(void){
+    sceGuFinish();
+    sceGuSync(GU_SYNC_FINISH,GU_SYNC_WHAT_DONE);
+    pspDebugScreenSetOffset((int)fbp0);
+    pspDebugScreenEnableBackColor(0);
+}
+
+static void txt(int x,int y,unsigned int c,const char *s){ pspDebugScreenSetXY(x,y); pspDebugScreenSetTextColor(c); pspDebugScreenPrintf("%s",s); }
+
+static void draw_text(void){
+    char b[96]; int r,vis=visible_count(); int total=4+(unlocked?1:0); int pct=(total*100)/6;
+    txt(2,0,C_SOFT,"[GAME]");
+    txt(49,0,C_SOFT,online?"3/14  17:26  WIFI":"3/14  17:26  OFF");
+    txt(3,6,C_WHITE,"PERSONA 2");
+    txt(3,8,C_DIM,"ETERNAL PUNISHMENT");
+    txt(18,5,C_WHITE,"Persona 2: Eternal Punishment");
+    snprintf(b,sizeof(b),"%d / 6 unlocked",total); txt(18,8,C_SOFT,b);
+    snprintf(b,sizeof(b),"%d%%",pct); txt(40,8,C_SOFT,b);
+    txt(43,5,C_SOFT,"[:)]  Tatsuya");
+    txt(48,7,C_DIM,"Lv. 28");
+    txt(20,13,filter_mode==0?C_WHITE:C_DIM,"All");
+    txt(32,13,filter_mode==1?C_WHITE:C_DIM,"Unlocked");
+    txt(47,13,filter_mode==2?C_WHITE:C_DIM,"Locked");
+    txt(3,19,C_DIM,"SUMARU"); txt(3,22,C_SOFT,"City"); txt(3,26,C_DIM,"Persona 2"); txt(3,28,C_DIM,"Achievements");
+    for(r=0;r<vis && r<6;r++){
+        int idx=visible_to_real(r),u=ach_unlocked(idx), y=16+r*2;
+        snprintf(b,sizeof(b),"%-26s %2d pts",ach_names[idx],ach_points[idx]);
+        txt(18,y,(r==item)?C_WHITE:(u?C_SOFT:C_LOCK),b);
+        snprintf(b,sizeof(b),"%-30s %s",ach_desc[idx],u?"OK":"LOCK");
+        txt(18,y+1,(r==item)?C_BLUE:(u?C_DIM:C_LOCK),b);
+    }
+    txt(3,31,C_WHITE,"X Select      O Back      L/R Filter      UP/DOWN Navigate");
+    if(popup_frames>0){
+        txt(28,6,C_WHITE,"Achievement Unlocked");
+        txt(28,7,C_SOFT,"First Contact");
+        txt(28,8,(online||synced)?C_GREEN:C_YELLOW,(online||synced)?"SYNCED  +5":"SAVED LOCAL  +5");
     }
 }
 
-static void draw_game_header(void) {
-    char b[64];
-    int pct = (total_unlocked() * 100) / 6;
-
-    txt(3, 4, C_WHITE, BG_PANEL, " [ PERSONA 2 ] ");
-    txt(3, 5, C_SOFT, BG_PANEL, " ETERNAL PUNISHMENT ");
-    txt(21, 4, C_WHITE, BG, "Persona 2: Eternal Punishment");
-
-    snprintf(b, sizeof(b), "%d / 6 unlocked", total_unlocked());
-    txt(21, 6, C_TEXT, BG, b);
-
-    txt(37, 6, C_DIM, BG, "[");
-    txt(38, 6, C_BLUE, BG, pct >= 16 ? "====" : "    ");
-    txt(42, 6, C_BLUE, BG, pct >= 50 ? "====" : "    ");
-    txt(46, 6, C_DIM, BG, "]");
-    snprintf(b, sizeof(b), " %d%%", pct);
-    txt(48, 6, C_TEXT, BG, b);
-
-    txt(50, 4, C_WHITE, BG_PANEL, " [:) ] ");
-    txt(50, 5, C_TEXT, BG_PANEL, " Tatsuya ");
-    txt(50, 6, C_SOFT, BG_PANEL, " Lv. 28 ");
-}
-
-static void draw_tabs(void) {
-    txt(18, 8, filter_mode == 0 ? C_WHITE : C_SOFT,
-        filter_mode == 0 ? BG_FOCUS : BG_TAB, "      All      ");
-    txt(33, 8, filter_mode == 1 ? C_WHITE : C_SOFT,
-        filter_mode == 1 ? BG_FOCUS : BG_TAB, "   Unlocked   ");
-    txt(47, 8, filter_mode == 2 ? C_WHITE : C_SOFT,
-        filter_mode == 2 ? BG_FOCUS : BG_TAB, "    Locked    ");
-    hline(9, C_DIM);
-}
-
-static void draw_achievement_row(int row, int idx) {
-    char line1[64], line2[64];
-    int y = 10 + row * 3;
-    int u = ach_unlocked(idx);
-    unsigned int bg = row == item ? BG_FOCUS : BG_ROW;
-    unsigned int fg = row == item ? C_WHITE : (u ? C_TEXT : C_DIM);
-    const char *mark = u ? "[OK]" : "[LOCK]";
-
-    snprintf(line1, sizeof(line1), " %-3s  %-28s %4d pts ", row == item ? ">" : " ", ach_names[idx], ach_points[idx]);
-    txt(14, y, fg, bg, line1);
-
-    snprintf(line2, sizeof(line2), "      %-30s %-6s ", ach_desc[idx], mark);
-    txt(14, y + 1, row == item ? C_ICE : (u ? C_SOFT : C_LOCK), bg, line2);
-}
-
-static void draw_achievements(void) {
-    int row, vis = visible_count();
-    draw_game_header();
-    draw_tabs();
-
-    txt(2, 11, C_DIM, BG, "SUMARU");
-    txt(2, 13, C_SOFT, BG, "City");
-    txt(2, 15, C_DIM, BG, "Persona 2");
-    txt(2, 16, C_DIM, BG, "Achievements");
-
-    for (row = 0; row < vis && row < 6; ++row) {
-        draw_achievement_row(row, visible_to_real(row));
-    }
-
-    if (vis == 0) txt(22, 15, C_DIM, BG, "No achievements in this filter.");
-}
-
-static void draw_game(void) {
-    char b[64];
-    draw_game_header();
-    txt(4, 11, C_WHITE, BG_PANEL, "Game session");
-    snprintf(b, sizeof(b), "Memory trigger  0x00001000   %02d / 10", progress);
-    txt(4, 13, C_TEXT, BG_PANEL, b);
-    txt(4, 15, C_SOFT, BG_PANEL, "X: simulate gameplay progress");
-    txt(4, 17, C_SOFT, BG_PANEL, "TRIANGLE: toggle network");
-    txt(4, 19, unlocked ? C_GREEN : C_DIM, BG_PANEL,
-        unlocked ? "The Rumor Never Dies: unlocked" : "The Rumor Never Dies: locked");
-}
-
-static void draw_profile(void) {
-    draw_game_header();
-    txt(6, 11, C_WHITE, BG_PANEL, "RetroAchievements Profile");
-    txt(6, 13, C_TEXT, BG_PANEL, "User            Tatsuya");
-    txt(6, 15, C_TEXT, BG_PANEL, "Level           28");
-    txt(6, 17, C_TEXT, BG_PANEL, online ? "Connection      Online" : "Connection      Offline");
-    txt(6, 19, C_TEXT, BG_PANEL, queued ? "Pending         1 unlock" : "Pending         None");
-}
-
-static void draw_settings(void) {
-    const char *opts[] = {"Overlay", "Audio", "Network", "Performance"};
-    int i;
-    for (i = 0; i < 4; ++i) {
-        char b[48];
-        unsigned int bg = i == item ? BG_FOCUS : BG_PANEL;
-        snprintf(b, sizeof(b), " %-18s %s ", opts[i], i == 2 ? (online ? "ONLINE" : "OFFLINE") : "ON");
-        txt(8, 9 + i * 3, i == item ? C_WHITE : C_TEXT, bg, b);
-    }
-}
-
-static void draw_popup(void) {
-    if (popup_frames <= 0) return;
-    txt(27, 3, C_WHITE, BG_POP, " Achievement Unlocked        ");
-    txt(27, 4, C_ICE, BG_POP, " The Rumor Never Dies        ");
-    txt(27, 5, C_SOFT, BG_POP, " Witnessed the True End.     ");
-    txt(27, 6, (online || synced) ? C_GREEN : C_YELLOW, BG_POP,
-        (online || synced) ? " SYNCED                 50 pts" : " SAVED LOCAL            50 pts");
-}
-
-static void draw_footer(void) {
-    hline(28, C_DIM);
-    txt(2, 29, C_WHITE, BG_TOP, " X Select    O Back    L/R Filter ");
-    txt(40, 29, C_SOFT, BG_TOP, "UP/DOWN Navigate");
-}
-
-static void render(void) {
-    cls();
-    draw_top();
-    if (section == 0) draw_game();
-    else if (section == 1) draw_achievements();
-    else if (section == 2) draw_profile();
-    else draw_settings();
-    draw_popup();
-    draw_footer();
-}
-
-static void evaluate(void) {
-    if (!unlocked && progress >= 10) {
-        unlocked = 1;
-        popup_frames = 240;
-        dirty = 1;
-        log_line("UNLOCK achievement=1003 title=The_Rumor_Never_Dies");
-        if (online) {
-            synced = 1;
-            log_line("SYNC achievement=1003 status=confirmed");
-        } else {
-            queued = 1;
-            log_line("QUEUE achievement=1003 state=pending");
-        }
-    }
-
-    if (online && queued && !synced) {
-        synced = 1;
-        queued = 0;
-        popup_frames = 180;
-        dirty = 1;
-        log_line("SYNC achievement=1003 status=confirmed_after_reconnect");
-    }
-}
-
-static int section_item_count(void) {
-    if (section == 1) return visible_count();
-    if (section == 3) return 4;
-    return 1;
-}
-
-static void render_if_needed(void) {
-    if (!dirty) return;
+static void render(void){
+    gu_begin();
+    draw_background();
+    draw_header_graphics();
+    draw_tabs_graphics();
+    draw_list_graphics();
+    draw_popup_graphics();
+    gu_end_and_text();
+    draw_text();
     sceDisplayWaitVblankStart();
-    render();
-    dirty = 0;
+    fbp0=sceGuSwapBuffers();
 }
 
-int main(int argc, char *argv[]) {
-    SceCtrlData pad, old;
-    (void)argc; (void)argv;
+static void evaluate(void){
+    if(!unlocked && progress>=10){ unlocked=1; popup_frames=220; dirty=1; log_line("UNLOCK achievement=1001 title=First_Contact"); if(online){synced=1;log_line("SYNC achievement=1001 status=confirmed");}else{queued=1;log_line("QUEUE achievement=1001 state=pending");}}
+    if(online&&queued&&!synced){synced=1;queued=0;popup_frames=180;dirty=1;log_line("SYNC achievement=1001 status=confirmed_after_reconnect");}
+}
 
+static void init_graphics(void){
     pspDebugScreenInit();
-    sceCtrlSetSamplingCycle(0);
-    sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
-    memset(&old, 0, sizeof(old));
-    log_line("BOOT RA-PSP Native UI v0.5");
-    render_if_needed();
+    pspDebugScreenEnableBackColor(0);
+    sceGuInit();
+    sceGuStart(GU_DIRECT,gu_list);
+    sceGuDrawBuffer(GU_PSM_8888,fbp0,BUF_WIDTH);
+    sceGuDispBuffer(SCR_W,SCR_H,fbp1,BUF_WIDTH);
+    sceGuDepthBuffer(zbp,BUF_WIDTH);
+    sceGuOffset(2048-(SCR_W/2),2048-(SCR_H/2));
+    sceGuViewport(2048,2048,SCR_W,SCR_H);
+    sceGuDepthRange(65535,0);
+    sceGuScissor(0,0,SCR_W,SCR_H);
+    sceGuEnable(GU_SCISSOR_TEST);
+    sceGuFinish();
+    sceGuSync(GU_SYNC_FINISH,GU_SYNC_WHAT_DONE);
+    sceDisplayWaitVblankStart();
+    sceGuDisplay(GU_TRUE);
+}
 
-    while (1) {
-        unsigned int pressed;
-        int count;
-        sceCtrlReadBufferPositive(&pad, 1);
-        pressed = pad.Buttons & ~old.Buttons;
-
-        if (pressed & PSP_CTRL_LEFT) { section = (section + 3) % 4; item = 0; dirty = 1; }
-        if (pressed & PSP_CTRL_RIGHT) { section = (section + 1) % 4; item = 0; dirty = 1; }
-
-        count = section_item_count();
-        if (pressed & PSP_CTRL_UP) { if (count > 0) item = (item + count - 1) % count; dirty = 1; }
-        if (pressed & PSP_CTRL_DOWN) { if (count > 0) item = (item + 1) % count; dirty = 1; }
-
-        if (section == 1) {
-            if (pressed & PSP_CTRL_LTRIGGER) { filter_mode = (filter_mode + 2) % 3; item = 0; dirty = 1; }
-            if (pressed & PSP_CTRL_RTRIGGER) { filter_mode = (filter_mode + 1) % 3; item = 0; dirty = 1; }
-        }
-
-        if (pressed & PSP_CTRL_CROSS) {
-            if (section == 0) {
-                if (progress < 10) progress++;
-                evaluate();
-                dirty = 1;
-            } else if (section == 1 && visible_count() > 0) {
-                int idx = visible_to_real(item);
-                char b[96];
-                snprintf(b, sizeof(b), "UI achievement_selected id=%d", idx);
-                log_line(b);
-            } else if (section == 3 && item == 2) {
-                online = !online;
-                evaluate();
-                dirty = 1;
-            }
-        }
-
-        if (pressed & PSP_CTRL_TRIANGLE) {
-            online = !online;
-            evaluate();
-            dirty = 1;
-            log_line(online ? "NETWORK online" : "NETWORK offline");
-        }
-
-        if (pressed & PSP_CTRL_CIRCLE) {
-            if (section != 0) { section = 0; item = 0; dirty = 1; }
-            else break;
-        }
-
-        if (popup_frames > 0) {
-            popup_frames--;
-            if (popup_frames == 0) dirty = 1;
-        }
-
-        render_if_needed();
-        old = pad;
-        sceDisplayWaitVblankStart();
+int main(int argc,char *argv[]){
+    SceCtrlData pad,old; (void)argc;(void)argv;
+    init_graphics(); sceCtrlSetSamplingCycle(0); sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG); memset(&old,0,sizeof(old));
+    log_line("BOOT RA-PSP Native UI v0.6 GU"); render(); dirty=0;
+    while(1){
+        unsigned int pressed; int count=visible_count();
+        sceCtrlReadBufferPositive(&pad,1); pressed=pad.Buttons & ~old.Buttons;
+        if(pressed&PSP_CTRL_UP){if(count>0)item=(item+count-1)%count;dirty=1;}
+        if(pressed&PSP_CTRL_DOWN){if(count>0)item=(item+1)%count;dirty=1;}
+        if(pressed&PSP_CTRL_LTRIGGER){filter_mode=(filter_mode+2)%3;item=0;dirty=1;}
+        if(pressed&PSP_CTRL_RTRIGGER){filter_mode=(filter_mode+1)%3;item=0;dirty=1;}
+        if(pressed&PSP_CTRL_CROSS){if(progress<10)progress++;evaluate();dirty=1;}
+        if(pressed&PSP_CTRL_TRIANGLE){online=!online;evaluate();dirty=1;log_line(online?"NETWORK online":"NETWORK offline");}
+        if(pressed&PSP_CTRL_CIRCLE) break;
+        if(popup_frames>0){popup_frames--; if(popup_frames==0)dirty=1;}
+        if(dirty){render();dirty=0;} else sceDisplayWaitVblankStart();
+        old=pad;
     }
-
-    sceKernelExitGame();
-    return 0;
+    sceGuTerm(); sceKernelExitGame(); return 0;
 }
