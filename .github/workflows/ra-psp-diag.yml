@@ -21,7 +21,7 @@ jobs:
         working-directory: ra-psp-prx
         run: make clean && make -j2
 
-      - name: Build flow simulator
+      - name: Build PSP-native UI simulator
         working-directory: ra-psp-sim
         run: make clean && make -j2
 
@@ -30,33 +30,37 @@ jobs:
           mkdir -p artifact/RA-PSP
           cp ra-psp-diag/EBOOT.PBP artifact/RA-PSP/DIAGNOSTIC_EBOOT.PBP
           cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP/ra_psp_memtest.prx
-          cp ra-psp-sim/EBOOT.PBP artifact/RA-PSP/SIMULATOR_EBOOT.PBP
-          cp ra-psp-sim/ra_psp_sim.elf artifact/RA-PSP/RA_PSP_SIM.elf
-          cp ra-psp-sim/main.c artifact/RA-PSP/simulator_main.c
+          cp ra-psp-sim/EBOOT.PBP artifact/RA-PSP/RA_PSP_NATIVE_UI_EBOOT.PBP
+          cp ra-psp-sim/ra_psp_sim.elf artifact/RA-PSP/RA_PSP_NATIVE_UI.elf
+          cp ra-psp-sim/main.c artifact/RA-PSP/native_ui_main.c
           printf '%s\n' \
-            'RA-PSP FLOW SIMULATOR' \
+            'RA-PSP NATIVE UI SIMULATOR v0.2' \
             '' \
-            'Put SIMULATOR_EBOOT.PBP in:' \
+            'Copy RA_PSP_NATIVE_UI_EBOOT.PBP to:' \
             '  PSP/GAME/RA-PSP-SIM/EBOOT.PBP' \
             '' \
-            'Controls:' \
-            '  X        increase simulated game memory progress' \
-            '  TRIANGLE toggle network online/offline' \
-            '  SQUARE   reset scenario' \
-            '  CIRCLE   exit' \
+            'Game view:' \
+            '  X              increase simulated achievement progress' \
+            '  TRIANGLE       toggle network online/offline' \
+            '  L+R+SELECT     open native-style achievement browser' \
+            '  CIRCLE         exit' \
             '' \
-            'Recommended scenario:' \
-            '  1. Start offline.' \
-            '  2. Press X ten times.' \
-            '  3. Achievement popup should show SAVED OFFLINE.' \
-            '  4. Press TRIANGLE.' \
-            '  5. Queue changes to SYNCED and log records confirmation.' \
+            'Achievement browser:' \
+            '  UP/DOWN        move selection' \
+            '  L/R            change All / Unlocked / Locked filter' \
+            '  CIRCLE         return to game' \
+            '' \
+            'Test scenario:' \
+            '  1. Stay offline and press X ten times.' \
+            '  2. The PSP-style notification shows SAVED LOCAL.' \
+            '  3. Open the browser with L+R+SELECT.' \
+            '  4. Return, press TRIANGLE, and sync the queued unlock.' \
             '' \
             'Log:' \
             '  ms0:/PSP/RA_SIM_LOG.txt' \
-            > artifact/RA-PSP/README_SIM.txt
+            > artifact/RA-PSP/README_NATIVE_UI.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-FLOW-SIM-v0.1
+          name: RA-PSP-NATIVE-UI-v0.2
           path: artifact/RA-PSP
