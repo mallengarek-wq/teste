@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply direct VRAM copy patch
+      - name: Apply buffered renderer timing patch
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -51,7 +51,11 @@ jobs:
           }'''
           if old not in s:
               raise SystemExit('blit_menu source block not found')
-          p.write_text(s.replace(old, new))
+          s = s.replace(old, new)
+          if 'sceKernelDelayThread(1000);' not in s:
+              raise SystemExit('frame timing line not found')
+          s = s.replace('sceKernelDelayThread(1000);', 'sceKernelDelayThread(14500);', 1)
+          p.write_text(s)
           PY
 
       - name: Build PPSSPP user-mode PRX
@@ -64,7 +68,7 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP BUFFERED OVERLAY v0.6.1' \
+            'RA-PSP PPSSPP BUFFERED OVERLAY v0.6.2' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
@@ -78,8 +82,8 @@ jobs:
             'TRIANGLE: test popup' \
             'CIRCLE: close menu' \
             '' \
-            'Renderer: menu is built off-screen, then copied to VRAM with direct word stores.' \
-            'This avoids the partial-frame draw and the unreliable memcpy-to-VRAM path.' \
+            'Renderer: off-screen menu + direct VRAM stores near the end of the game frame.' \
+            'This targets both partial-draw flicker and early-frame overwrite.' \
             '' \
             'No RetroAchievements login/network yet.' \
             'No fake achievement data is presented as real.' \
@@ -90,5 +94,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.6.1-BUFFERED-OVERLAY-DROPIN
+          name: RA-PSP-PPSSPP-v0.6.2-BUFFERED-OVERLAY-DROPIN
           path: artifact
