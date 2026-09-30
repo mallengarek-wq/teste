@@ -9,9 +9,9 @@ CXXFLAGS = $(CFLAGS)
 ASFLAGS = $(CFLAGS)
 LDFLAGS = -nostartfiles
 
-# Keep only non-default libraries here. PSPSDK build.mak appends the core SDK
-# libraries in the correct order required by psp-fixup-imports.
-LIBS = -lrcheevos -lpsphttp -lpspssl -lm
+# Keep only required extra libraries here. build.mak appends the core SDK
+# libraries in the required order for psp-fixup-imports.
+LIBS = -lrcheevos -lpsphttp -lpspssl -lpsprtc -lm
 
 BUILD_PRX = 1
 PRX_EXPORTS = exports.exp
