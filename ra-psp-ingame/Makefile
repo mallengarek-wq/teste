@@ -8,7 +8,7 @@ LDFLAGS = -nostartfiles
 
 INCDIR = ../ra-psp-core ../third_party/rcheevos/include ../third_party/rcheevos/src
 LIBDIR = ../build/core ../build/rcheevos
-LIBS = -lra_psp_core -lrcheevos -lm -lpsphttp -lpspnet_inet -lpspnet_apctl -lpspnet_resolver -lpsprtc -lpspdisplay -lpspctrl
+LIBS = -lra_psp_core -lrcheevos -lm -lpsphttp -lpsprtc
 
 BUILD_PRX = 1
 PRX_EXPORTS = exports.exp
