@@ -26,7 +26,7 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP OVERLAY MENU v0.5' \
+            'RA-PSP PPSSPP BUFFERED OVERLAY v0.6' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
@@ -40,9 +40,11 @@ jobs:
             'TRIANGLE: test popup' \
             'CIRCLE: close menu' \
             '' \
-            'This build has no RetroAchievements login/network yet.' \
+            'Renderer change: the menu is rendered off-screen first and then blitted as a completed frame.' \
+            'This specifically addresses the partial-frame flicker seen in v0.5.' \
+            '' \
+            'No RetroAchievements login/network yet.' \
             'No fake achievement data is presented as real.' \
-            'It validates the custom in-game renderer before rc_client is reintroduced.' \
             '' \
             'Log:' \
             'memstick\\PSP\\PLUGINS\\RA-PSP\\ra_psp_ppsspp.log' \
@@ -50,5 +52,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.5-OVERLAY-MENU-DROPIN
+          name: RA-PSP-PPSSPP-v0.6-BUFFERED-OVERLAY-DROPIN
           path: artifact
