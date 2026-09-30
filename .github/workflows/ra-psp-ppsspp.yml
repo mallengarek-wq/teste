@@ -26,19 +26,23 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP HOTKEY TEST v0.4' \
+            'RA-PSP PPSSPP OVERLAY MENU v0.5' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
             '' \
             'Target game: Persona 2 Innocent Sin USA - ULUS10584' \
             '' \
-            'Primary hotkey: L + R + SELECT' \
-            'Fallback hotkey: START + SELECT' \
+            'Open/close: L + R + SELECT' \
+            'Fallback: START + SELECT' \
+            'LEFT/RIGHT: change tabs' \
+            'UP/DOWN: navigate achievement placeholder rows' \
+            'TRIANGLE: test popup' \
+            'CIRCLE: close menu' \
             '' \
-            'When detected, PPSSPP should show a native PSP message dialog.' \
-            'This build does not draw directly into the game framebuffer.' \
-            'It is only validating visible hotkey/input handling safely.' \
+            'This build has no RetroAchievements login/network yet.' \
+            'No fake achievement data is presented as real.' \
+            'It validates the custom in-game renderer before rc_client is reintroduced.' \
             '' \
             'Log:' \
             'memstick\\PSP\\PLUGINS\\RA-PSP\\ra_psp_ppsspp.log' \
@@ -46,5 +50,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.4-VISIBLE-HOTKEY-DROPIN
+          name: RA-PSP-PPSSPP-v0.5-OVERLAY-MENU-DROPIN
           path: artifact
