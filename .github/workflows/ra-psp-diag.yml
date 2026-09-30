@@ -12,16 +12,44 @@ jobs:
       image: ghcr.io/pspdev/pspdev-docker:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build EBOOT
+
+      - name: Build diagnostic EBOOT
         working-directory: ra-psp-diag
         run: make clean && make -j2
+
+      - name: Build memory-test PRX
+        working-directory: ra-psp-prx
+        run: make clean && make -j2
+
       - name: Package
         run: |
           mkdir -p artifact/RA-PSP-DIAG
           cp ra-psp-diag/EBOOT.PBP artifact/RA-PSP-DIAG/EBOOT.PBP
           cp ra-psp-diag/ra_psp_diag.elf artifact/RA-PSP-DIAG/RA_PSP_DIAG.elf
           cp ra-psp-diag/main.c artifact/RA-PSP-DIAG/main.c
+          cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP-DIAG/ra_psp_memtest.prx
+          cp ra-psp-prx/main.c artifact/RA-PSP-DIAG/prx_main.c
+          cat > artifact/RA-PSP-DIAG/INSTALL_PRX.txt <<'EOF'
+RA-PSP MEMTEST v0.1
+
+Real PSP/CFW intended path:
+  ms0:/seplugins/ra_psp_memtest.prx
+
+Add to game.txt:
+  ms0:/seplugins/ra_psp_memtest.prx 1
+
+Expected log:
+  ms0:/PSP/RA/logs/memory.log
+
+The test samples four 32-bit words from 0x08800000 once per second.
+This is intentionally conservative for the first in-game memory test.
+
+PPSSPP note:
+Stock PPSSPP does not necessarily emulate CFW game.txt plugin loading exactly like a real PSP.
+If the PRX does not auto-load in PPSSPP, that is a loader limitation rather than proof that the PRX itself is invalid.
+EOF
+
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-DIAG-v0.0.2
+          name: RA-PSP-MEMTEST-v0.1
           path: artifact/RA-PSP-DIAG
