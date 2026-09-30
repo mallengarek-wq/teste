@@ -102,8 +102,13 @@ void ra_rc_do_frame(void) {
 }
 
 int ra_rc_login_with_token(const char* username, const char* token) {
-    if (!g_client || !username || !token) return -1;
+    if (!g_client || !username || !username[0] || !token || !token[0]) return -1;
     return rc_client_begin_login_with_token(g_client, username, token, on_login, 0) ? 0 : -2;
+}
+
+int ra_rc_login_with_password(const char* username, const char* password) {
+    if (!g_client || !username || !username[0] || !password || !password[0]) return -1;
+    return rc_client_begin_login_with_password(g_client, username, password, on_login, 0) ? 0 : -2;
 }
 
 int ra_rc_load_game_hash(const char* hash) {
