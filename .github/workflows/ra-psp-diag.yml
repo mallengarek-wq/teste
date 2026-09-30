@@ -1,4 +1,4 @@
-name: Build RA-PSP Diagnostic
+name: Build RA-PSP
 
 on:
   push:
@@ -12,6 +12,30 @@ jobs:
       image: ghcr.io/pspdev/pspdev-docker:latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fetch pinned rcheevos
+        run: |
+          git clone --depth 1 --branch v12.0.0 https://github.com/RetroAchievements/rcheevos.git third_party/rcheevos
+
+      - name: Compile RA core against real rc_client headers
+        run: |
+          mkdir -p build/core
+          psp-gcc -O2 -G0 -Wall -Wextra \
+            -Ithird_party/rcheevos/include \
+            -Ithird_party/rcheevos/src \
+            -Ira-psp-core \
+            -c ra-psp-core/ra_memory_psp.c -o build/core/ra_memory_psp.o
+          psp-gcc -O2 -G0 -Wall -Wextra \
+            -Ithird_party/rcheevos/include \
+            -Ithird_party/rcheevos/src \
+            -Ira-psp-core \
+            -c ra-psp-core/ra_network.c -o build/core/ra_network.o
+          psp-gcc -O2 -G0 -Wall -Wextra \
+            -Ithird_party/rcheevos/include \
+            -Ithird_party/rcheevos/src \
+            -Ira-psp-core \
+            -c ra-psp-core/ra_rc_bridge.c -o build/core/ra_rc_bridge.o
+          psp-ar rcs build/core/libra_psp_core.a build/core/*.o
 
       - name: Build diagnostic EBOOT
         working-directory: ra-psp-diag
@@ -32,35 +56,22 @@ jobs:
           cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP/ra_psp_memtest.prx
           cp ra-psp-sim/EBOOT.PBP artifact/RA-PSP/RA_PSP_NATIVE_UI_EBOOT.PBP
           cp ra-psp-sim/ra_psp_sim.elf artifact/RA-PSP/RA_PSP_NATIVE_UI.elf
-          cp ra-psp-sim/main.c artifact/RA-PSP/native_ui_main.c
+          cp build/core/libra_psp_core.a artifact/RA-PSP/libra_psp_core.a
+          cp ra-psp-core/*.c ra-psp-core/*.h artifact/RA-PSP/
           printf '%s\n' \
-            'RA-PSP NATIVE UI SIMULATOR v0.2' \
+            'RA-PSP CORE v0.2' \
             '' \
-            'Copy RA_PSP_NATIVE_UI_EBOOT.PBP to:' \
-            '  PSP/GAME/RA-PSP-SIM/EBOOT.PBP' \
+            'rcheevos target: v12.0.0' \
+            'RC console: PSP (41)' \
+            'Hardcore: disabled' \
+            'Background memory reads: disabled' \
+            'Frame processing: rc_client_do_frame()' \
+            'Network transport: interface present, HTTPS not implemented yet' \
             '' \
-            'Game view:' \
-            '  X              increase simulated achievement progress' \
-            '  TRIANGLE       toggle network online/offline' \
-            '  L+R+SELECT     open native-style achievement browser' \
-            '  CIRCLE         exit' \
-            '' \
-            'Achievement browser:' \
-            '  UP/DOWN        move selection' \
-            '  L/R            change All / Unlocked / Locked filter' \
-            '  CIRCLE         return to game' \
-            '' \
-            'Test scenario:' \
-            '  1. Stay offline and press X ten times.' \
-            '  2. The PSP-style notification shows SAVED LOCAL.' \
-            '  3. Open the browser with L+R+SELECT.' \
-            '  4. Return, press TRIANGLE, and sync the queued unlock.' \
-            '' \
-            'Log:' \
-            '  ms0:/PSP/RA_SIM_LOG.txt' \
-            > artifact/RA-PSP/README_NATIVE_UI.txt
+            'The static core library was cross-compiled with PSPSDK against real rc_client headers.' \
+            > artifact/RA-PSP/README_CORE.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-NATIVE-UI-v0.2
+          name: RA-PSP-CORE-v0.2
           path: artifact/RA-PSP
