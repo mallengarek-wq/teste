@@ -1,15 +1,45 @@
 #include <pspkernel.h>
 #include <pspctrl.h>
+#include <pspdisplay.h>
 #include <pspiofilemgr.h>
-#include <psputility.h>
+#include <psprtc.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
-PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 4);
+PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 5);
 PSP_NO_CREATE_MAIN_THREAD();
 
+#define W 480
+#define H 272
 #define LOG_PATH "ms0:/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.log"
 #define COMBO_MAIN (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT)
 #define COMBO_FALLBACK (PSP_CTRL_START | PSP_CTRL_SELECT)
+
+#define TAB_SUMMARY 0
+#define TAB_ACHIEVEMENTS 1
+#define TAB_STATUS 2
+
+typedef struct { uint8_t r, g, b; } RGB;
+
+static const unsigned char FONT_ALPHA[26][7] = {
+    {14,17,17,31,17,17,17},{30,17,17,30,17,17,30},{14,17,16,16,16,17,14},
+    {30,17,17,17,17,17,30},{31,16,16,30,16,16,31},{31,16,16,30,16,16,16},
+    {14,17,16,23,17,17,15},{17,17,17,31,17,17,17},{14,4,4,4,4,4,14},
+    {7,2,2,2,18,18,12},{17,18,20,24,20,18,17},{16,16,16,16,16,16,31},
+    {17,27,21,21,17,17,17},{17,25,21,19,17,17,17},{14,17,17,17,17,17,14},
+    {30,17,17,30,16,16,16},{14,17,17,17,21,18,13},{30,17,17,30,20,18,17},
+    {15,16,16,14,1,1,30},{31,4,4,4,4,4,4},{17,17,17,17,17,17,14},
+    {17,17,17,17,17,10,4},{17,17,17,21,21,21,10},{17,17,10,4,10,17,17},
+    {17,17,10,4,4,4,4},{31,1,2,4,8,16,31}
+};
+
+static const unsigned char FONT_DIGIT[10][7] = {
+    {14,17,19,21,25,17,14},{4,12,4,4,4,4,14},{14,17,1,2,4,8,31},
+    {30,1,1,14,1,1,30},{2,6,10,18,31,2,2},{31,16,16,30,1,1,30},
+    {14,16,16,30,17,17,14},{31,1,2,4,8,8,8},{14,17,17,14,17,17,14},
+    {14,17,17,15,1,1,14}
+};
 
 static int text_len(const char *s) {
     int n = 0;
@@ -26,63 +56,249 @@ static void write_line(const char *text) {
     }
 }
 
-static void show_confirmation(const char *which) {
-    pspUtilityMsgDialogParams dialog;
-    int init_result;
-    int loops = 0;
+static RGB rgb(uint8_t r, uint8_t g, uint8_t b) {
+    RGB c;
+    c.r = r; c.g = g; c.b = b;
+    return c;
+}
 
-    memset(&dialog, 0, sizeof(dialog));
-    dialog.base.size = sizeof(dialog);
-    dialog.base.language = PSP_SYSTEMPARAM_LANGUAGE_ENGLISH;
-    dialog.base.buttonSwap = PSP_UTILITY_ACCEPT_CROSS;
-    dialog.base.graphicsThread = 0x11;
-    dialog.base.accessThread = 0x13;
-    dialog.base.fontThread = 0x12;
-    dialog.base.soundThread = 0x10;
-    dialog.mode = PSP_UTILITY_MSGDIALOG_MODE_TEXT;
-    dialog.options = PSP_UTILITY_MSGDIALOG_OPTION_TEXT;
+static unsigned char glyph_row(char ch, int row) {
+    unsigned char c = (unsigned char)ch;
+    if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 'a' + 'A');
+    if (c >= 'A' && c <= 'Z') return FONT_ALPHA[c - 'A'][row];
+    if (c >= '0' && c <= '9') return FONT_DIGIT[c - '0'][row];
 
-    strncpy(dialog.message,
-            "RA-PSP PPSSPP v0.4\n\n"
-            "Atalho detectado corretamente.\n"
-            "O plugin esta lendo os controles do jogo.\n\n"
-            "Feche esta caixa para continuar.",
-            sizeof(dialog.message) - 1);
-    dialog.message[sizeof(dialog.message) - 1] = '\0';
-
-    write_line(which);
-    init_result = sceUtilityMsgDialogInitStart(&dialog);
-    if (init_result < 0) {
-        write_line("DIALOG ERROR: sceUtilityMsgDialogInitStart failed");
-        return;
+    switch (c) {
+        case ' ': return 0;
+        case '.': return row == 6 ? 4 : 0;
+        case ':': return (row == 2 || row == 5) ? 4 : 0;
+        case '-': return row == 3 ? 14 : 0;
+        case '/': return row == 0 ? 1 : row == 1 ? 2 : row == 2 ? 2 : row == 3 ? 4 : row == 4 ? 8 : row == 5 ? 8 : 16;
+        case '+': return row == 3 ? 14 : ((row == 2 || row == 4) ? 4 : 0);
+        case '[': return (row == 0 || row == 6) ? 14 : 8;
+        case ']': return (row == 0 || row == 6) ? 14 : 2;
+        case '>': return row == 1 ? 8 : row == 2 ? 4 : row == 3 ? 2 : row == 4 ? 4 : row == 5 ? 8 : 0;
+        case '<': return row == 1 ? 2 : row == 2 ? 4 : row == 3 ? 8 : row == 4 ? 4 : row == 5 ? 2 : 0;
+        case '!': return row < 5 ? 4 : (row == 6 ? 4 : 0);
+        default: return (row == 0 || row == 6) ? 14 : ((row == 1 || row == 5) ? 17 : 0);
     }
+}
 
-    write_line("DIALOG OK: visible confirmation requested");
+static uint32_t pack32(RGB c) {
+    return 0xFF000000u | ((uint32_t)c.b << 16) | ((uint32_t)c.g << 8) | c.r;
+}
 
-    while (loops++ < 3600) {
-        int status = sceUtilityMsgDialogGetStatus();
-        if (status == PSP_UTILITY_DIALOG_VISIBLE) {
-            sceUtilityMsgDialogUpdate(1);
-        } else if (status == PSP_UTILITY_DIALOG_QUIT) {
-            sceUtilityMsgDialogShutdownStart();
-        } else if (status == PSP_UTILITY_DIALOG_NONE && loops > 5) {
-            break;
+static uint16_t pack16(RGB c, int fmt) {
+    if (fmt == PSP_DISPLAY_PIXEL_FORMAT_565)
+        return (uint16_t)(((c.r >> 3) << 11) | ((c.g >> 2) << 5) | (c.b >> 3));
+    if (fmt == PSP_DISPLAY_PIXEL_FORMAT_5551)
+        return (uint16_t)(0x8000 | ((c.r >> 3) << 10) | ((c.g >> 3) << 5) | (c.b >> 3));
+    return (uint16_t)(0xF000 | ((c.b >> 4) << 8) | ((c.g >> 4) << 4) | (c.r >> 4));
+}
+
+static void put_px(void *fb, int stride, int fmt, int x, int y, RGB c) {
+    if (!fb || x < 0 || x >= W || y < 0 || y >= H) return;
+    if (fmt == PSP_DISPLAY_PIXEL_FORMAT_8888)
+        ((uint32_t *)fb)[y * stride + x] = pack32(c);
+    else
+        ((uint16_t *)fb)[y * stride + x] = pack16(c, fmt);
+}
+
+static void fill_rect(void *fb, int stride, int fmt, int x0, int y0, int x1, int y1, RGB c) {
+    int x, y;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > W) x1 = W;
+    if (y1 > H) y1 = H;
+    for (y = y0; y < y1; y++)
+        for (x = x0; x < x1; x++)
+            put_px(fb, stride, fmt, x, y, c);
+}
+
+static void outline_box(void *fb, int stride, int fmt, int x0, int y0, int x1, int y1, RGB bg, RGB edge) {
+    fill_rect(fb, stride, fmt, x0, y0, x1, y1, bg);
+    fill_rect(fb, stride, fmt, x0, y0, x1, y0 + 1, edge);
+    fill_rect(fb, stride, fmt, x0, y1 - 1, x1, y1, edge);
+    fill_rect(fb, stride, fmt, x0, y0, x0 + 1, y1, edge);
+    fill_rect(fb, stride, fmt, x1 - 1, y0, x1, y1, edge);
+}
+
+static void draw_text(void *fb, int stride, int fmt, int x, int y, RGB c, const char *text, int scale) {
+    int i, row, col, xx, yy;
+    if (!text) return;
+    for (i = 0; text[i] && x < 474; i++, x += 6 * scale) {
+        for (row = 0; row < 7; row++) {
+            unsigned char bits = glyph_row(text[i], row);
+            for (col = 0; col < 5; col++) {
+                if (bits & (1 << (4 - col))) {
+                    for (yy = 0; yy < scale; yy++)
+                        for (xx = 0; xx < scale; xx++)
+                            put_px(fb, stride, fmt, x + col * scale + xx, y + row * scale + yy, c);
+                }
+            }
         }
-        sceKernelDelayThread(16667);
     }
+}
 
-    write_line("DIALOG CLOSED");
+static int get_framebuffer(void **fb, int *stride, int *fmt) {
+    int result;
+    *fb = 0;
+    *stride = 0;
+    *fmt = 0;
+    result = sceDisplayGetFrameBuf(fb, stride, fmt, PSP_DISPLAY_SETBUF_IMMEDIATE);
+    if (result < 0 || !*fb || *stride < W || *stride > 1024) return 0;
+    if (*fmt != PSP_DISPLAY_PIXEL_FORMAT_8888 &&
+        *fmt != PSP_DISPLAY_PIXEL_FORMAT_565 &&
+        *fmt != PSP_DISPLAY_PIXEL_FORMAT_5551 &&
+        *fmt != PSP_DISPLAY_PIXEL_FORMAT_4444) return 0;
+    return 1;
+}
+
+static void draw_clock(void *fb, int stride, int fmt, RGB color) {
+    pspTime t;
+    char buf[16];
+    if (sceRtcGetCurrentClockLocalTime(&t) >= 0)
+        snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minutes);
+    else
+        strcpy(buf, "--:--");
+    draw_text(fb, stride, fmt, 419, 18, color, buf, 1);
+}
+
+static void draw_tab(void *fb, int stride, int fmt, int x0, int x1, const char *label, int active) {
+    RGB bg = active ? rgb(183, 133, 78) : rgb(66, 45, 36);
+    RGB edge = active ? rgb(236, 196, 118) : rgb(126, 93, 70);
+    RGB textc = active ? rgb(255, 250, 230) : rgb(196, 176, 153);
+    outline_box(fb, stride, fmt, x0, 72, x1, 100, bg, edge);
+    draw_text(fb, stride, fmt, x0 + 10, 82, textc, label, 1);
+}
+
+static void draw_summary(void *fb, int stride, int fmt) {
+    RGB white = rgb(250, 244, 226);
+    RGB soft = rgb(198, 181, 158);
+    RGB green = rgb(169, 222, 162);
+    RGB gold = rgb(238, 194, 108);
+    RGB panel = rgb(61, 42, 34);
+    RGB edge = rgb(126, 93, 70);
+
+    outline_box(fb, stride, fmt, 28, 110, 452, 209, panel, edge);
+    draw_text(fb, stride, fmt, 42, 121, white, "PLUGIN ACTIVE", 1);
+    draw_text(fb, stride, fmt, 328, 121, green, "OK", 1);
+    draw_text(fb, stride, fmt, 42, 140, white, "HOTKEY AND INPUT", 1);
+    draw_text(fb, stride, fmt, 328, 140, green, "OK", 1);
+    draw_text(fb, stride, fmt, 42, 159, white, "RETROACHIEVEMENTS", 1);
+    draw_text(fb, stride, fmt, 255, 159, gold, "NOT CONNECTED", 1);
+    draw_text(fb, stride, fmt, 42, 180, soft, "NEXT: RC_CLIENT LOGIN + LIVE SET", 1);
+    draw_text(fb, stride, fmt, 42, 194, soft, "NO FAKE ACHIEVEMENT DATA SHOWN", 1);
+}
+
+static void draw_achievements(void *fb, int stride, int fmt, int selected) {
+    RGB white = rgb(250, 244, 226);
+    RGB soft = rgb(198, 181, 158);
+    RGB gold = rgb(238, 194, 108);
+    RGB panel = rgb(61, 42, 34);
+    RGB panel2 = rgb(86, 59, 44);
+    RGB edge = rgb(126, 93, 70);
+    int y0[3] = {112, 142, 172};
+    int i;
+    const char *labels[3] = {
+        "NO ACHIEVEMENT SET LOADED",
+        "ONLINE BRIDGE DISABLED IN V0.5",
+        "REAL RA TITLES WILL APPEAR HERE"
+    };
+
+    for (i = 0; i < 3; i++) {
+        RGB bg = (i == selected) ? panel2 : panel;
+        RGB ec = (i == selected) ? gold : edge;
+        outline_box(fb, stride, fmt, 28, y0[i], 452, y0[i] + 25, bg, ec);
+        draw_text(fb, stride, fmt, 42, y0[i] + 9, (i == selected) ? white : soft, labels[i], 1);
+    }
+    draw_text(fb, stride, fmt, 42, 210, soft, "UP/DOWN PREVIEWS LIST NAVIGATION", 1);
+}
+
+static void draw_status(void *fb, int stride, int fmt) {
+    RGB white = rgb(250, 244, 226);
+    RGB soft = rgb(198, 181, 158);
+    RGB green = rgb(169, 222, 162);
+    RGB gold = rgb(238, 194, 108);
+    RGB panel = rgb(61, 42, 34);
+    RGB edge = rgb(126, 93, 70);
+
+    outline_box(fb, stride, fmt, 28, 110, 452, 213, panel, edge);
+    draw_text(fb, stride, fmt, 42, 121, white, "PLUGIN", 1);
+    draw_text(fb, stride, fmt, 310, 121, green, "LOADED", 1);
+    draw_text(fb, stride, fmt, 42, 140, white, "INPUT", 1);
+    draw_text(fb, stride, fmt, 310, 140, green, "OK", 1);
+    draw_text(fb, stride, fmt, 42, 159, white, "RENDERER", 1);
+    draw_text(fb, stride, fmt, 250, 159, gold, "FRAMEBUFFER V0.5", 1);
+    draw_text(fb, stride, fmt, 42, 178, white, "NETWORK / RCHEEVOS", 1);
+    draw_text(fb, stride, fmt, 310, 178, soft, "OFF", 1);
+    draw_text(fb, stride, fmt, 42, 197, soft, "GAME RAM IS NOT READ IN THIS BUILD", 1);
+}
+
+static void draw_menu(int tab, int selected) {
+    void *fb;
+    int stride, fmt;
+    RGB bg = rgb(48, 31, 27);
+    RGB top = rgb(81, 52, 32);
+    RGB edge = rgb(213, 170, 100);
+    RGB white = rgb(250, 244, 226);
+    RGB soft = rgb(198, 181, 158);
+
+    if (!get_framebuffer(&fb, &stride, &fmt)) return;
+
+    outline_box(fb, stride, fmt, 14, 10, 466, 258, bg, edge);
+    fill_rect(fb, stride, fmt, 15, 11, 465, 58, top);
+    draw_text(fb, stride, fmt, 27, 22, white, "RA-PSP", 2);
+    draw_clock(fb, stride, fmt, soft);
+    draw_text(fb, stride, fmt, 27, 48, white, "PERSONA 2: INNOCENT SIN", 1);
+    draw_text(fb, stride, fmt, 278, 48, soft, "ULUS10584 / PPSSPP", 1);
+
+    draw_tab(fb, stride, fmt, 22, 155, "SUMMARY", tab == TAB_SUMMARY);
+    draw_tab(fb, stride, fmt, 159, 327, "ACHIEVEMENTS", tab == TAB_ACHIEVEMENTS);
+    draw_tab(fb, stride, fmt, 331, 458, "STATUS", tab == TAB_STATUS);
+
+    if (tab == TAB_SUMMARY) draw_summary(fb, stride, fmt);
+    else if (tab == TAB_ACHIEVEMENTS) draw_achievements(fb, stride, fmt, selected);
+    else draw_status(fb, stride, fmt);
+
+    fill_rect(fb, stride, fmt, 15, 229, 465, 257, rgb(55, 36, 31));
+    draw_text(fb, stride, fmt, 26, 239, soft, "LEFT/RIGHT TABS", 1);
+    draw_text(fb, stride, fmt, 169, 239, soft, "TRIANGLE TEST POPUP", 1);
+    draw_text(fb, stride, fmt, 363, 239, soft, "O CLOSE", 1);
+}
+
+static void draw_popup(void) {
+    void *fb;
+    int stride, fmt;
+    RGB panel = rgb(81, 52, 32);
+    RGB edge = rgb(238, 194, 108);
+    RGB white = rgb(250, 244, 226);
+    RGB soft = rgb(198, 181, 158);
+    RGB green = rgb(169, 222, 162);
+
+    if (!get_framebuffer(&fb, &stride, &fmt)) return;
+
+    outline_box(fb, stride, fmt, 176, 18, 466, 82, panel, edge);
+    outline_box(fb, stride, fmt, 187, 29, 229, 71, rgb(104, 70, 47), edge);
+    draw_text(fb, stride, fmt, 198, 45, edge, "RA", 1);
+    draw_text(fb, stride, fmt, 240, 29, white, "TEST POPUP", 1);
+    draw_text(fb, stride, fmt, 240, 45, soft, "OVERLAY PATH OK", 1);
+    draw_text(fb, stride, fmt, 240, 61, green, "NO RA UNLOCK SENT", 1);
 }
 
 static int worker(SceSize args, void *argp) {
     SceCtrlData pad;
     unsigned int previous = 0;
-    int main_latched = 0;
-    int fallback_latched = 0;
+    int combo_main_latched = 0;
+    int combo_fallback_latched = 0;
+    int menu_open = 0;
+    int tab = TAB_SUMMARY;
+    int selected = 0;
+    int popup_frames = 0;
     (void)args;
     (void)argp;
 
-    write_line("RA-PSP v0.4: worker started");
+    write_line("RA-PSP v0.5: worker started");
 
     for (;;) {
         memset(&pad, 0, sizeof(pad));
@@ -90,32 +306,65 @@ static int worker(SceSize args, void *argp) {
             unsigned int buttons = pad.Buttons;
 
             if ((buttons & COMBO_MAIN) == COMBO_MAIN) {
-                if (!main_latched) {
-                    main_latched = 1;
-                    show_confirmation("HOTKEY OK: L+R+SELECT detected");
+                if (!combo_main_latched) {
+                    combo_main_latched = 1;
+                    menu_open = !menu_open;
+                    write_line(menu_open ? "MENU OPEN: L+R+SELECT" : "MENU CLOSED: L+R+SELECT");
                 }
             } else {
-                main_latched = 0;
+                combo_main_latched = 0;
             }
 
             if ((buttons & COMBO_FALLBACK) == COMBO_FALLBACK) {
-                if (!fallback_latched) {
-                    fallback_latched = 1;
-                    show_confirmation("HOTKEY OK: START+SELECT detected");
+                if (!combo_fallback_latched) {
+                    combo_fallback_latched = 1;
+                    menu_open = !menu_open;
+                    write_line(menu_open ? "MENU OPEN: START+SELECT" : "MENU CLOSED: START+SELECT");
                 }
             } else {
-                fallback_latched = 0;
+                combo_fallback_latched = 0;
             }
 
-            if ((buttons & PSP_CTRL_TRIANGLE) && !(previous & PSP_CTRL_TRIANGLE))
-                write_line("BUTTON OK: TRIANGLE detected");
-            if ((buttons & PSP_CTRL_CIRCLE) && !(previous & PSP_CTRL_CIRCLE))
-                write_line("BUTTON OK: CIRCLE detected");
+            if (menu_open) {
+                if ((buttons & PSP_CTRL_CIRCLE) && !(previous & PSP_CTRL_CIRCLE)) {
+                    menu_open = 0;
+                    write_line("MENU CLOSED: CIRCLE");
+                }
+                if ((buttons & PSP_CTRL_LEFT) && !(previous & PSP_CTRL_LEFT)) {
+                    tab--;
+                    if (tab < TAB_SUMMARY) tab = TAB_STATUS;
+                }
+                if ((buttons & PSP_CTRL_RIGHT) && !(previous & PSP_CTRL_RIGHT)) {
+                    tab++;
+                    if (tab > TAB_STATUS) tab = TAB_SUMMARY;
+                }
+                if (tab == TAB_ACHIEVEMENTS) {
+                    if ((buttons & PSP_CTRL_UP) && !(previous & PSP_CTRL_UP)) {
+                        selected--;
+                        if (selected < 0) selected = 2;
+                    }
+                    if ((buttons & PSP_CTRL_DOWN) && !(previous & PSP_CTRL_DOWN)) {
+                        selected++;
+                        if (selected > 2) selected = 0;
+                    }
+                }
+                if ((buttons & PSP_CTRL_TRIANGLE) && !(previous & PSP_CTRL_TRIANGLE)) {
+                    popup_frames = 150;
+                    write_line("TEST POPUP TRIGGERED");
+                }
+            }
 
             previous = buttons;
         }
 
-        sceKernelDelayThread(16667);
+        sceDisplayWaitVblankStart();
+        sceKernelDelayThread(1000);
+
+        if (menu_open) draw_menu(tab, selected);
+        if (popup_frames > 0) {
+            draw_popup();
+            popup_frames--;
+        }
     }
 
     return 0;
@@ -126,9 +375,9 @@ int module_start(SceSize args, void *argp) {
     (void)args;
     (void)argp;
 
-    write_line("RA-PSP v0.4: module_start");
+    write_line("RA-PSP v0.5: module_start");
 
-    th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x30, 0x4000, PSP_THREAD_ATTR_USER, 0);
+    th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x40, 0x5000, PSP_THREAD_ATTR_USER, 0);
     if (th < 0) {
         write_line("ERROR: sceKernelCreateThread failed");
         return 0;
@@ -137,7 +386,7 @@ int module_start(SceSize args, void *argp) {
     if (sceKernelStartThread(th, 0, 0) < 0)
         write_line("ERROR: sceKernelStartThread failed");
     else
-        write_line("RA-PSP v0.4: worker launched");
+        write_line("RA-PSP v0.5: worker launched");
 
     return 0;
 }
@@ -145,6 +394,6 @@ int module_start(SceSize args, void *argp) {
 int module_stop(SceSize args, void *argp) {
     (void)args;
     (void)argp;
-    write_line("RA-PSP v0.4: module_stop");
+    write_line("RA-PSP v0.5: module_stop");
     return 0;
 }
