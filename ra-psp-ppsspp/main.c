@@ -24,7 +24,7 @@ static int worker(SceSize args, void *argp) {
     (void)args;
     (void)argp;
 
-    write_line("RA-PSP v0.3: worker started", 28);
+    write_line("RA-PSP v0.3: worker started", 27);
 
     sceCtrlSetSamplingCycle(0);
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
@@ -38,7 +38,7 @@ static int worker(SceSize args, void *argp) {
         if ((pad.Buttons & COMBO) == COMBO) {
             if (!combo_latched) {
                 combo_latched = 1;
-                write_line("HOTKEY OK: L+R+SELECT detected", 29);
+                write_line("HOTKEY OK: L+R+SELECT detected", 30);
             }
         } else {
             combo_latched = 0;
@@ -72,7 +72,7 @@ int module_start(SceSize args, void *argp) {
     if (sceKernelStartThread(th, 0, 0) < 0)
         write_line("ERROR: sceKernelStartThread failed", 34);
     else
-        write_line("RA-PSP v0.3: worker launched", 29);
+        write_line("RA-PSP v0.3: worker launched", 28);
 
     return 0;
 }
