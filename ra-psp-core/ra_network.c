@@ -1,6 +1,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <pspkernel.h>
+#include <pspsdk.h>
+#include <psputility.h>
+#include <pspnet_apctl.h>
 
 #include "ra_network.h"
 
@@ -31,12 +35,63 @@ extern int sceHttpAddExtraHeader(int, const char*, char*, PspHttpAddHeaderMode);
 #define RA_HTTP_POOL_SIZE 20000
 #define RA_HTTP_CHUNK 4096
 #define RA_HTTP_MAX_RESPONSE (512 * 1024)
+#define RA_AP_PROFILE 1
+#define RA_AP_TIMEOUT_LOOPS 300
 
 static int g_http_initialized = 0;
+static int g_inet_initialized = 0;
+static int g_ap_connected = 0;
+
+static int ensure_network(void) {
+    int state = 0;
+    int i;
+    int rc;
+
+    if (g_ap_connected) return 0;
+
+    /* Loading an already-loaded module may return an error on some CFWs.
+       We intentionally continue and let pspSdkInetInit/apctl tell us whether
+       the network stack is actually usable. */
+    sceUtilityLoadNetModule(PSP_NET_MODULE_COMMON);
+    sceUtilityLoadNetModule(PSP_NET_MODULE_INET);
+    sceUtilityLoadNetModule(PSP_NET_MODULE_PARSEURI);
+    sceUtilityLoadNetModule(PSP_NET_MODULE_PARSEHTTP);
+    sceUtilityLoadNetModule(PSP_NET_MODULE_HTTP);
+    sceUtilityLoadNetModule(PSP_NET_MODULE_SSL);
+
+    if (!g_inet_initialized) {
+        rc = pspSdkInetInit();
+        if (rc < 0) return rc;
+        g_inet_initialized = 1;
+    }
+
+    rc = sceNetApctlGetState(&state);
+    if (rc == 0 && state == 4) {
+        g_ap_connected = 1;
+        return 0;
+    }
+
+    rc = sceNetApctlConnect(RA_AP_PROFILE);
+    if (rc < 0) return rc;
+
+    for (i = 0; i < RA_AP_TIMEOUT_LOOPS; ++i) {
+        rc = sceNetApctlGetState(&state);
+        if (rc < 0) return rc;
+        if (state == 4) {
+            g_ap_connected = 1;
+            return 0;
+        }
+        sceKernelDelayThread(50000);
+    }
+
+    return -1;
+}
 
 static int ensure_http(void) {
     int rc;
     if (g_http_initialized) return 0;
+    rc = ensure_network();
+    if (rc < 0) return rc;
     rc = sceHttpInit(RA_HTTP_POOL_SIZE);
     if (rc < 0) return rc;
     g_http_initialized = 1;
@@ -47,6 +102,14 @@ void ra_net_shutdown(void) {
     if (g_http_initialized) {
         sceHttpEnd();
         g_http_initialized = 0;
+    }
+    if (g_ap_connected) {
+        sceNetApctlDisconnect();
+        g_ap_connected = 0;
+    }
+    if (g_inet_initialized) {
+        pspSdkInetTerm();
+        g_inet_initialized = 0;
     }
 }
 
@@ -69,7 +132,7 @@ void RC_CCONV ra_net_server_call(const rc_api_request_t* request,
     if (!request || !request->url || !callback) return;
     if (ensure_http() < 0) goto done;
 
-    tmpl = sceHttpCreateTemplate("RA-PSP/0.9 rcheevos/12.0", PSP_HTTP_VERSION_1_1, 0);
+    tmpl = sceHttpCreateTemplate("RA-PSP/0.9.1 rcheevos/12.0", PSP_HTTP_VERSION_1_1, 0);
     if (tmpl < 0) goto done;
     sceHttpSetResolveTimeOut(tmpl, 5000000);
     sceHttpSetConnectTimeOut(tmpl, 7000000);
