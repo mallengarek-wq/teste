@@ -16,12 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply buffered renderer timing patch
+      - name: Apply buffered renderer cache patch
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('ra-psp-ppsspp/main.c')
           s = p.read_text()
+          s = s.replace('#include <psprtc.h>', '#include <psprtc.h>\n#include <psputils.h>')
           old = '''static void blit_menu(void *surface, int fmt, void *fb, int fb_stride) {
               int y;
               int bpp = bytes_per_pixel(fmt);
@@ -35,6 +36,7 @@ jobs:
           new = '''static void blit_menu(void *surface, int fmt, void *fb, int fb_stride) {
               int x, y;
               int width = MENU_X1 - MENU_X0;
+              int bpp = bytes_per_pixel(fmt);
               if (fmt == PSP_DISPLAY_PIXEL_FORMAT_8888) {
                   for (y = MENU_Y0; y < MENU_Y1; y++) {
                       uint32_t *src = (uint32_t *)surface + y * W + MENU_X0;
@@ -48,6 +50,9 @@ jobs:
                       for (x = 0; x < width; x++) dst[x] = src[x];
                   }
               }
+              sceKernelDcacheWritebackInvalidateRange(
+                  (unsigned char *)fb + (MENU_Y0 * fb_stride + MENU_X0) * bpp,
+                  (unsigned int)((MENU_Y1 - MENU_Y0) * fb_stride * bpp));
           }'''
           if old not in s:
               raise SystemExit('blit_menu source block not found')
@@ -68,7 +73,7 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP BUFFERED OVERLAY v0.6.2' \
+            'RA-PSP PPSSPP BUFFERED OVERLAY v0.6.3' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
@@ -82,8 +87,8 @@ jobs:
             'TRIANGLE: test popup' \
             'CIRCLE: close menu' \
             '' \
-            'Renderer: off-screen menu + direct VRAM stores near the end of the game frame.' \
-            'This targets both partial-draw flicker and early-frame overwrite.' \
+            'Renderer: off-screen menu + late-frame direct VRAM stores + explicit data-cache writeback.' \
+            'This targets partial-frame flicker, early overwrite and cached VRAM writes.' \
             '' \
             'No RetroAchievements login/network yet.' \
             'No fake achievement data is presented as real.' \
@@ -94,5 +99,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.6.2-BUFFERED-OVERLAY-DROPIN
+          name: RA-PSP-PPSSPP-v0.6.3-BUFFERED-OVERLAY-DROPIN
           path: artifact
