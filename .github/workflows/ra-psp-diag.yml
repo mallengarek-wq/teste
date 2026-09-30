@@ -32,15 +32,11 @@ jobs:
       - name: Compile RA core against real rc_client headers
         run: |
           mkdir -p build/core
-          psp-gcc -O2 -G0 -Wall -Wextra -DRC_NO_THREADS \
-            -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -Ira-psp-core \
-            -c ra-psp-core/ra_memory_psp.c -o build/core/ra_memory_psp.o
-          psp-gcc -O2 -G0 -Wall -Wextra -DRC_NO_THREADS \
-            -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -Ira-psp-core \
-            -c ra-psp-core/ra_network.c -o build/core/ra_network.o
-          psp-gcc -O2 -G0 -Wall -Wextra -DRC_NO_THREADS \
-            -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -Ira-psp-core \
-            -c ra-psp-core/ra_rc_bridge.c -o build/core/ra_rc_bridge.o
+          SDK_INC="$(psp-config --pspsdk-path)/include"
+          COMMON="-O2 -G0 -Wall -Wextra -DRC_NO_THREADS -I$SDK_INC -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -Ira-psp-core"
+          psp-gcc $COMMON -c ra-psp-core/ra_memory_psp.c -o build/core/ra_memory_psp.o
+          psp-gcc $COMMON -c ra-psp-core/ra_network.c -o build/core/ra_network.o
+          psp-gcc $COMMON -c ra-psp-core/ra_rc_bridge.c -o build/core/ra_rc_bridge.o
           psp-ar rcs build/core/libra_psp_core.a build/core/*.o
 
       - name: Build diagnostic EBOOT
