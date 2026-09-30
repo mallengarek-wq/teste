@@ -1,12 +1,13 @@
 #include <pspkernel.h>
 #include <pspctrl.h>
+#include <pspdisplay.h>
 #include <pspiofilemgr.h>
 #include <psputility.h>
 #include <psprtc.h>
 #include <stdio.h>
 #include <string.h>
 
-PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 52);
+PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 53);
 PSP_NO_CREATE_MAIN_THREAD();
 
 #define LOG_PATH "ms0:/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.log"
@@ -52,12 +53,13 @@ static void show_ra_menu(const char *hotkey_name) {
 
     if (sceRtcGetCurrentClockLocalTime(&now) >= 0) {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.5.2\n\n"
+            "RA-PSP PPSSPP v0.5.3\n\n"
             "PERSONA 2: INNOCENT SIN\n"
             "ULUS10584\n\n"
             "Plugin............. OK\n"
             "Controles.......... OK\n"
             "Menu nativo........ OK\n"
+            "Sincronizacao...... VBLANK\n"
             "RetroAchievements.. OFF\n"
             "Set carregado...... NAO\n\n"
             "Hora: %02d:%02d\n\n"
@@ -66,12 +68,13 @@ static void show_ra_menu(const char *hotkey_name) {
             now.hour, now.minutes);
     } else {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.5.2\n\n"
+            "RA-PSP PPSSPP v0.5.3\n\n"
             "PERSONA 2: INNOCENT SIN\n"
             "ULUS10584\n\n"
             "Plugin............. OK\n"
             "Controles.......... OK\n"
             "Menu nativo........ OK\n"
+            "Sincronizacao...... VBLANK\n"
             "RetroAchievements.. OFF\n"
             "Set carregado...... NAO\n\n"
             "Proxima etapa: login + rc_client + set real.\n"
@@ -88,10 +91,22 @@ static void show_ra_menu(const char *hotkey_name) {
         return;
     }
 
-    write_line("MENU OPEN: native utility dialog");
+    write_line("MENU OPEN: native utility dialog vblank synced");
 
     while (loops++ < 7200) {
-        int status = sceUtilityMsgDialogGetStatus();
+        int status;
+
+        /*
+         * The previous build updated the utility dialog on a free-running
+         * 16.7 ms timer. That can land before or after the game's own frame
+         * and causes alternating game/dialog frames in PPSSPP. Wait for the
+         * real display vblank instead. The RA worker has a lower priority than
+         * typical game render threads, so the game gets its frame first and
+         * the dialog update is submitted afterwards.
+         */
+        sceDisplayWaitVblankStart();
+        status = sceUtilityMsgDialogGetStatus();
+
         if (status == PSP_UTILITY_DIALOG_VISIBLE) {
             sceUtilityMsgDialogUpdate(1);
         } else if (status == PSP_UTILITY_DIALOG_QUIT) {
@@ -99,7 +114,9 @@ static void show_ra_menu(const char *hotkey_name) {
         } else if (status == PSP_UTILITY_DIALOG_NONE && loops > 5) {
             break;
         }
-        sceKernelDelayThread(16667);
+
+        /* Small yield only; frame pacing comes from VBlank above. */
+        sceKernelDelayThread(500);
     }
 
     write_line("MENU CLOSED: native utility dialog");
@@ -112,7 +129,7 @@ static int worker(SceSize args, void *argp) {
     (void)args;
     (void)argp;
 
-    write_line("RA-PSP v0.5.2: worker started");
+    write_line("RA-PSP v0.5.3: worker started");
 
     for (;;) {
         memset(&pad, 0, sizeof(pad));
@@ -149,9 +166,9 @@ int module_start(SceSize args, void *argp) {
     (void)args;
     (void)argp;
 
-    write_line("RA-PSP v0.5.2: module_start");
+    write_line("RA-PSP v0.5.3: module_start");
 
-    th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x30, 0x5000, PSP_THREAD_ATTR_USER, 0);
+    th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x34, 0x5000, PSP_THREAD_ATTR_USER, 0);
     if (th < 0) {
         write_line("ERROR: sceKernelCreateThread failed");
         return 0;
@@ -160,7 +177,7 @@ int module_start(SceSize args, void *argp) {
     if (sceKernelStartThread(th, 0, 0) < 0)
         write_line("ERROR: sceKernelStartThread failed");
     else
-        write_line("RA-PSP v0.5.2: worker launched");
+        write_line("RA-PSP v0.5.3: worker launched");
 
     return 0;
 }
@@ -168,6 +185,6 @@ int module_start(SceSize args, void *argp) {
 int module_stop(SceSize args, void *argp) {
     (void)args;
     (void)argp;
-    write_line("RA-PSP v0.5.2: module_stop");
+    write_line("RA-PSP v0.5.3: module_stop");
     return 0;
 }
