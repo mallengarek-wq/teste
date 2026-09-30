@@ -39,9 +39,19 @@ jobs:
       - name: Extract project
         run: unzip -q ConquestWars_Android_Min.zip
 
-      - name: Build debug APK
+      - name: Build debug APK with retries
         working-directory: ConquestWars_Android_Min
-        run: gradle --no-daemon app:assembleDebug
+        run: |
+          set +e
+          for attempt in 1 2 3 4; do
+            echo "Tentativa $attempt de 4"
+            gradle --no-daemon --refresh-dependencies app:assembleDebug && exit 0
+            code=$?
+            if [ "$attempt" -lt 4 ]; then
+              sleep $((attempt * 20))
+            fi
+          done
+          exit "$code"
 
       - name: Prepare APK
         run: cp ConquestWars_Android_Min/app/build/outputs/apk/debug/app-debug.apk ConquestWars.apk
