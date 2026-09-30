@@ -24,21 +24,25 @@ jobs:
           gradle-version: '8.9'
 
       - name: Install Android SDK packages
-        run: yes | sdkmanager --licenses >/dev/null || true; sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
-
-      - name: Check project archive
         run: |
-          test -f ConquestWars_Android_Tiny.zip || { echo 'Falta ConquestWars_Android_Tiny.zip na raiz do repositório'; exit 1; }
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Download project package
+        run: |
+          python -m pip install --quiet gdown
+          gdown 'https://drive.google.com/uc?id=1_4vqE8YznnuiJpLPbNO-WnjPOApRa2Vo' -O ConquestWars_Android_Min.zip
+          test -s ConquestWars_Android_Min.zip
 
       - name: Extract project
-        run: unzip -q ConquestWars_Android_Tiny.zip
+        run: unzip -q ConquestWars_Android_Min.zip
 
       - name: Build debug APK
-        working-directory: ConquestWars_Android_Tiny
+        working-directory: ConquestWars_Android_Min
         run: gradle --no-daemon app:assembleDebug
 
       - name: Prepare APK
-        run: cp ConquestWars_Android_Tiny/app/build/outputs/apk/debug/app-debug.apk ConquestWars.apk
+        run: cp ConquestWars_Android_Min/app/build/outputs/apk/debug/app-debug.apk ConquestWars.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
