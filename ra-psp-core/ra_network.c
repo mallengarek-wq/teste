@@ -1,8 +1,30 @@
-#include <psphttp.h>
 #include <stdlib.h>
 #include <string.h>
+#include <psptypes.h>
 
 #include "ra_network.h"
+
+/* Some PSPSDK distributions ship sceHttp in the libraries but don't install
+ * psphttp.h in the public include path. Keep the tiny ABI surface we use here. */
+typedef enum { PSP_HTTP_VERSION_1_0 = 0, PSP_HTTP_VERSION_1_1 = 1 } PspHttpHttpVersion;
+typedef enum { PSP_HTTP_METHOD_GET = 0, PSP_HTTP_METHOD_POST = 1, PSP_HTTP_METHOD_HEAD = 2 } PspHttpMethod;
+typedef enum { PSP_HTTP_HEADER_OVERWRITE = 0, PSP_HTTP_HEADER_ADD = 1 } PspHttpAddHeaderMode;
+extern int sceHttpInit(unsigned int);
+extern int sceHttpEnd(void);
+extern int sceHttpCreateTemplate(char*, int, int);
+extern int sceHttpDeleteTemplate(int);
+extern int sceHttpCreateConnectionWithURL(int, const char*, int);
+extern int sceHttpDeleteConnection(int);
+extern int sceHttpCreateRequestWithURL(int, PspHttpMethod, char*, SceULong64);
+extern int sceHttpDeleteRequest(int);
+extern int sceHttpSendRequest(int, void*, unsigned int);
+extern int sceHttpReadData(int, void*, unsigned int);
+extern int sceHttpGetStatusCode(int, int*);
+extern int sceHttpSetResolveTimeOut(int, unsigned int);
+extern int sceHttpSetConnectTimeOut(int, unsigned int);
+extern int sceHttpSetSendTimeOut(int, unsigned int);
+extern int sceHttpSetRecvTimeOut(int, unsigned int);
+extern int sceHttpAddExtraHeader(int, const char*, char*, PspHttpAddHeaderMode);
 
 #define RA_HTTP_POOL_SIZE 20000
 #define RA_HTTP_CHUNK 4096
@@ -15,8 +37,6 @@ static int ensure_http(void) {
     if (g_http_initialized) return 0;
     rc = sceHttpInit(RA_HTTP_POOL_SIZE);
     if (rc < 0) return rc;
-    /* HTTPS is handled by the PSP HTTP stack when an https:// URL is used.
-       Some firmwares may still require SSL modules to be available/loaded. */
     g_http_initialized = 1;
     return 0;
 }
@@ -61,7 +81,7 @@ void RC_CCONV ra_net_server_call(const rc_api_request_t* request,
     post_len = post ? (unsigned int)strlen(post) : 0;
     req = sceHttpCreateRequestWithURL(conn,
         post ? PSP_HTTP_METHOD_POST : PSP_HTTP_METHOD_GET,
-        (char*)request->url, post_len);
+        (char*)request->url, (SceULong64)post_len);
     if (req < 0) goto done;
 
     if (request->content_type && request->content_type[0]) {
