@@ -1,0 +1,10 @@
+# RA-PSP account configuration
+# Do not commit your real token to a public repository.
+username=YOUR_RETROACHIEVEMENTS_USERNAME
+token=YOUR_RETROACHIEVEMENTS_TOKEN
+
+# Persona 2: Eternal Punishment PSP supported hashes (RetroAchievements game 3736):
+# English translation v1.0: dc90a54b3bb17c62af829ac68114e7e3
+# Japanese original:        42650941b0eab3c40d31934b91595c7a
+# Use only the hash that exactly matches your game revision.
+game_hash=dc90a54b3bb17c62af829ac68114e7e3
