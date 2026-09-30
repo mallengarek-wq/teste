@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
-PSP_MODULE_INFO("RA-PSP Native UI", PSP_MODULE_USER, 1, 6);
+PSP_MODULE_INFO("RA-PSP Native UI", PSP_MODULE_USER, 1, 7);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
 
 #define LOG_PATH "ms0:/PSP/RA_SIM_LOG.txt"
@@ -134,6 +134,7 @@ static void gu_end_and_text(void){
     sceGuFinish();
     sceGuSync(GU_SYNC_FINISH,GU_SYNC_WHAT_DONE);
     pspDebugScreenSetOffset((int)fbp0);
+    pspDebugScreenSetBase((void*)((unsigned int)0x44000000 + (unsigned int)fbp0));
     pspDebugScreenEnableBackColor(0);
 }
 
@@ -178,6 +179,7 @@ static void render(void){
     draw_popup_graphics();
     gu_end_and_text();
     draw_text();
+    sceKernelDcacheWritebackAll();
     sceDisplayWaitVblankStart();
     fbp0=sceGuSwapBuffers();
 }
@@ -188,7 +190,7 @@ static void evaluate(void){
 }
 
 static void init_graphics(void){
-    pspDebugScreenInit();
+    pspDebugScreenInitEx(fbp0, PSP_DISPLAY_PIXEL_FORMAT_8888, 0);
     pspDebugScreenEnableBackColor(0);
     sceGuInit();
     sceGuStart(GU_DIRECT,gu_list);
@@ -209,7 +211,7 @@ static void init_graphics(void){
 int main(int argc,char *argv[]){
     SceCtrlData pad,old; (void)argc;(void)argv;
     init_graphics(); sceCtrlSetSamplingCycle(0); sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG); memset(&old,0,sizeof(old));
-    log_line("BOOT RA-PSP Native UI v0.6 GU"); render(); dirty=0;
+    log_line("BOOT RA-PSP Native UI v0.7 GU text-fix"); render(); dirty=0;
     while(1){
         unsigned int pressed; int count=visible_count();
         sceCtrlReadBufferPositive(&pad,1); pressed=pad.Buttons & ~old.Buttons;
