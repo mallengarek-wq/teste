@@ -1,5 +1,5 @@
 TARGET = ra_psp_ppsspp
-OBJS = main.o
+OBJS = main2.o
 
 CFLAGS = -O2 -G0 -Wall -Wextra
 CXXFLAGS = $(CFLAGS)
