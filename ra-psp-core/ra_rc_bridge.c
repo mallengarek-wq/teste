@@ -87,10 +87,12 @@ int ra_rc_init(ra_ui_event_cb_t ui_cb, void* userdata) {
 }
 
 void ra_rc_shutdown(void) {
-    if (!g_client) return;
-    rc_client_unload_game(g_client);
-    rc_client_destroy(g_client);
-    g_client = 0;
+    if (g_client) {
+        rc_client_unload_game(g_client);
+        rc_client_destroy(g_client);
+        g_client = 0;
+    }
+    ra_net_shutdown();
     g_ui_cb = 0;
     g_ui_userdata = 0;
 }
