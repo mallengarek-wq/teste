@@ -1,0 +1,27 @@
+name: Build RA-PSP Diagnostic
+
+on:
+  push:
+    branches: [ra-psp-diag]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/pspdev/pspdev-docker:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build EBOOT
+        working-directory: ra-psp-diag
+        run: make clean && make -j2
+      - name: Package
+        run: |
+          mkdir -p artifact/RA-PSP-DIAG
+          cp ra-psp-diag/EBOOT.PBP artifact/RA-PSP-DIAG/EBOOT.PBP
+          cp ra-psp-diag/ra_psp_diag.elf artifact/RA-PSP-DIAG/RA_PSP_DIAG.elf
+          cp ra-psp-diag/main.c artifact/RA-PSP-DIAG/main.c
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RA-PSP-PPSSPP-DIAG-v0.0.2
+          path: artifact/RA-PSP-DIAG
