@@ -4,6 +4,7 @@ OBJS = main.o
 CFLAGS = -O2 -G0 -Wall -Wextra
 CXXFLAGS = $(CFLAGS)
 ASFLAGS = $(CFLAGS)
+LDFLAGS = -nostartfiles
 
 BUILD_PRX = 1
 PRX_EXPORTS = exports.exp
