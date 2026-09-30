@@ -17,6 +17,17 @@ jobs:
         run: |
           git clone --depth 1 --branch v12.0.0 https://github.com/RetroAchievements/rcheevos.git third_party/rcheevos
 
+      - name: Build rcheevos for PSP
+        run: |
+          mkdir -p build/rcheevos/obj
+          set -e
+          for f in third_party/rcheevos/src/rcheevos/*.c third_party/rcheevos/src/rapi/*.c third_party/rcheevos/src/rhash/*.c; do
+            case "$f" in *rc_libretro.c) continue ;; esac
+            o="build/rcheevos/obj/$(echo "$f" | sed 's#[/.]#_#g').o"
+            psp-gcc -O2 -G0 -DRC_DISABLE_LUA -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -c "$f" -o "$o"
+          done
+          psp-ar rcs build/rcheevos/librcheevos.a build/rcheevos/obj/*.o
+
       - name: Compile RA core against real rc_client headers
         run: |
           mkdir -p build/core
@@ -49,29 +60,41 @@ jobs:
         working-directory: ra-psp-sim
         run: make clean && make -j2
 
+      - name: Build in-game RA-PSP plugin
+        working-directory: ra-psp-ingame
+        run: make clean && make -j2
+
       - name: Package
         run: |
-          mkdir -p artifact/RA-PSP
+          mkdir -p artifact/RA-PSP/SEPLUGINS/RA-PSP
           cp ra-psp-diag/EBOOT.PBP artifact/RA-PSP/DIAGNOSTIC_EBOOT.PBP
           cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP/ra_psp_memtest.prx
           cp ra-psp-sim/EBOOT.PBP artifact/RA-PSP/RA_PSP_NATIVE_UI_EBOOT.PBP
           cp ra-psp-sim/ra_psp_sim.elf artifact/RA-PSP/RA_PSP_NATIVE_UI.elf
+          cp ra-psp-ingame/ra_psp_ingame.prx artifact/RA-PSP/SEPLUGINS/RA-PSP/ra_psp_ingame.prx
+          cp ra-psp-ingame/auth.ini.example artifact/RA-PSP/SEPLUGINS/RA-PSP/auth.ini.example
           cp build/core/libra_psp_core.a artifact/RA-PSP/libra_psp_core.a
+          cp build/rcheevos/librcheevos.a artifact/RA-PSP/librcheevos.a
           cp ra-psp-core/*.c ra-psp-core/*.h artifact/RA-PSP/
           printf '%s\n' \
-            'RA-PSP CORE v0.2' \
+            'RA-PSP v0.9 IN-GAME BETA' \
             '' \
-            'rcheevos target: v12.0.0' \
-            'RC console: PSP (41)' \
+            'Core: rcheevos/rc_client v12.0.0' \
+            'Transport: PSP sceHttp HTTPS implementation' \
+            'Runtime: GAME-mode PRX' \
+            'Menu hotkey: hold L+R+SELECT for ~400ms' \
+            'Popup: driven by RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED' \
             'Hardcore: disabled' \
-            'Background memory reads: disabled' \
-            'Frame processing: rc_client_do_frame()' \
-            'Network transport: interface present, HTTPS not implemented yet' \
             '' \
-            'The static core library was cross-compiled with PSPSDK against real rc_client headers.' \
+            'Install PRX at ms0:/SEPLUGINS/RA-PSP/ra_psp_ingame.prx' \
+            'Add to ms0:/SEPLUGINS/GAME.TXT:' \
+            'ms0:/SEPLUGINS/RA-PSP/ra_psp_ingame.prx 1' \
+            '' \
+            'Copy auth.ini.example to auth.ini and insert your own RA username/token.' \
+            'Never publish your token.' \
             > artifact/RA-PSP/README_CORE.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-CORE-v0.2
+          name: RA-PSP-v0.9-ingame-beta
           path: artifact/RA-PSP
