@@ -32,6 +32,7 @@ int ra_rc_init(ra_ui_event_cb_t ui_cb, void* userdata);
 void ra_rc_shutdown(void);
 void ra_rc_do_frame(void);
 int ra_rc_login_with_token(const char* username, const char* token);
+int ra_rc_login_with_password(const char* username, const char* password);
 int ra_rc_load_game_hash(const char* hash);
 int ra_rc_is_ready(void);
 rc_client_t* ra_rc_client(void);
