@@ -26,31 +26,25 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP STABILITY PROBE v0.2' \
+            'RA-PSP PPSSPP HOTKEY TEST v0.4' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
             '' \
             'Target game: Persona 2 Innocent Sin USA - ULUS10584' \
             '' \
-            'This build intentionally DOES NOT draw an overlay and DOES NOT read game RAM.' \
-            'It validates safe plugin loading and controller input first.' \
+            'Primary hotkey: L + R + SELECT' \
+            'Fallback hotkey: START + SELECT' \
             '' \
-            'After starting the game, press L+R+SELECT once, then TRIANGLE and CIRCLE.' \
-            'Close the game and inspect:' \
+            'When detected, PPSSPP should show a native PSP message dialog.' \
+            'This build does not draw directly into the game framebuffer.' \
+            'It is only validating visible hotkey/input handling safely.' \
+            '' \
+            'Log:' \
             'memstick\\PSP\\PLUGINS\\RA-PSP\\ra_psp_ppsspp.log' \
-            '' \
-            'Expected log lines include:' \
-            'module_start' \
-            'worker started' \
-            'HOTKEY OK: L+R+SELECT detected' \
-            'BUTTON OK: TRIANGLE detected' \
-            'BUTTON OK: CIRCLE detected' \
-            '' \
-            'No RetroAchievements login/network is enabled in this probe.' \
             > artifact/README-RA-PSP-PPSSPP.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-STABILITY-v0.2-DROPIN
+          name: RA-PSP-PPSSPP-v0.4-VISIBLE-HOTKEY-DROPIN
           path: artifact
