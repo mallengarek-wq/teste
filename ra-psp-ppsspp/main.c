@@ -5,9 +5,10 @@
 #include <psprtc.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 5);
+PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 6);
 PSP_NO_CREATE_MAIN_THREAD();
 
 #define W 480
@@ -15,10 +16,13 @@ PSP_NO_CREATE_MAIN_THREAD();
 #define LOG_PATH "ms0:/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.log"
 #define COMBO_MAIN (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT)
 #define COMBO_FALLBACK (PSP_CTRL_START | PSP_CTRL_SELECT)
-
 #define TAB_SUMMARY 0
 #define TAB_ACHIEVEMENTS 1
 #define TAB_STATUS 2
+#define MENU_X0 14
+#define MENU_Y0 10
+#define MENU_X1 466
+#define MENU_Y1 258
 
 typedef struct { uint8_t r, g, b; } RGB;
 
@@ -67,7 +71,6 @@ static unsigned char glyph_row(char ch, int row) {
     if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 'a' + 'A');
     if (c >= 'A' && c <= 'Z') return FONT_ALPHA[c - 'A'][row];
     if (c >= '0' && c <= '9') return FONT_DIGIT[c - '0'][row];
-
     switch (c) {
         case ' ': return 0;
         case '.': return row == 6 ? 4 : 0;
@@ -96,6 +99,10 @@ static uint16_t pack16(RGB c, int fmt) {
     return (uint16_t)(0xF000 | ((c.b >> 4) << 8) | ((c.g >> 4) << 4) | (c.r >> 4));
 }
 
+static int bytes_per_pixel(int fmt) {
+    return fmt == PSP_DISPLAY_PIXEL_FORMAT_8888 ? 4 : 2;
+}
+
 static void put_px(void *fb, int stride, int fmt, int x, int y, RGB c) {
     if (!fb || x < 0 || x >= W || y < 0 || y >= H) return;
     if (fmt == PSP_DISPLAY_PIXEL_FORMAT_8888)
@@ -106,13 +113,26 @@ static void put_px(void *fb, int stride, int fmt, int x, int y, RGB c) {
 
 static void fill_rect(void *fb, int stride, int fmt, int x0, int y0, int x1, int y1, RGB c) {
     int x, y;
+    if (!fb) return;
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > W) x1 = W;
     if (y1 > H) y1 = H;
-    for (y = y0; y < y1; y++)
-        for (x = x0; x < x1; x++)
-            put_px(fb, stride, fmt, x, y, c);
+    if (x1 <= x0 || y1 <= y0) return;
+
+    if (fmt == PSP_DISPLAY_PIXEL_FORMAT_8888) {
+        uint32_t value = pack32(c);
+        for (y = y0; y < y1; y++) {
+            uint32_t *row = (uint32_t *)fb + y * stride + x0;
+            for (x = x0; x < x1; x++) *row++ = value;
+        }
+    } else {
+        uint16_t value = pack16(c, fmt);
+        for (y = y0; y < y1; y++) {
+            uint16_t *row = (uint16_t *)fb + y * stride + x0;
+            for (x = x0; x < x1; x++) *row++ = value;
+        }
+    }
 }
 
 static void outline_box(void *fb, int stride, int fmt, int x0, int y0, int x1, int y1, RGB bg, RGB edge) {
@@ -179,7 +199,6 @@ static void draw_summary(void *fb, int stride, int fmt) {
     RGB gold = rgb(238, 194, 108);
     RGB panel = rgb(61, 42, 34);
     RGB edge = rgb(126, 93, 70);
-
     outline_box(fb, stride, fmt, 28, 110, 452, 209, panel, edge);
     draw_text(fb, stride, fmt, 42, 121, white, "PLUGIN ACTIVE", 1);
     draw_text(fb, stride, fmt, 328, 121, green, "OK", 1);
@@ -202,10 +221,9 @@ static void draw_achievements(void *fb, int stride, int fmt, int selected) {
     int i;
     const char *labels[3] = {
         "NO ACHIEVEMENT SET LOADED",
-        "ONLINE BRIDGE DISABLED IN V0.5",
+        "ONLINE BRIDGE DISABLED IN V0.6",
         "REAL RA TITLES WILL APPEAR HERE"
     };
-
     for (i = 0; i < 3; i++) {
         RGB bg = (i == selected) ? panel2 : panel;
         RGB ec = (i == selected) ? gold : edge;
@@ -222,62 +240,64 @@ static void draw_status(void *fb, int stride, int fmt) {
     RGB gold = rgb(238, 194, 108);
     RGB panel = rgb(61, 42, 34);
     RGB edge = rgb(126, 93, 70);
-
     outline_box(fb, stride, fmt, 28, 110, 452, 213, panel, edge);
     draw_text(fb, stride, fmt, 42, 121, white, "PLUGIN", 1);
     draw_text(fb, stride, fmt, 310, 121, green, "LOADED", 1);
     draw_text(fb, stride, fmt, 42, 140, white, "INPUT", 1);
     draw_text(fb, stride, fmt, 310, 140, green, "OK", 1);
     draw_text(fb, stride, fmt, 42, 159, white, "RENDERER", 1);
-    draw_text(fb, stride, fmt, 250, 159, gold, "FRAMEBUFFER V0.5", 1);
+    draw_text(fb, stride, fmt, 244, 159, gold, "BUFFERED V0.6", 1);
     draw_text(fb, stride, fmt, 42, 178, white, "NETWORK / RCHEEVOS", 1);
     draw_text(fb, stride, fmt, 310, 178, soft, "OFF", 1);
     draw_text(fb, stride, fmt, 42, 197, soft, "GAME RAM IS NOT READ IN THIS BUILD", 1);
 }
 
-static void draw_menu(int tab, int selected) {
-    void *fb;
-    int stride, fmt;
+static void render_menu(void *surface, int fmt, int tab, int selected) {
+    int stride = W;
     RGB bg = rgb(48, 31, 27);
     RGB top = rgb(81, 52, 32);
     RGB edge = rgb(213, 170, 100);
     RGB white = rgb(250, 244, 226);
     RGB soft = rgb(198, 181, 158);
 
-    if (!get_framebuffer(&fb, &stride, &fmt)) return;
+    outline_box(surface, stride, fmt, MENU_X0, MENU_Y0, MENU_X1, MENU_Y1, bg, edge);
+    fill_rect(surface, stride, fmt, 15, 11, 465, 58, top);
+    draw_text(surface, stride, fmt, 27, 22, white, "RA-PSP", 2);
+    draw_clock(surface, stride, fmt, soft);
+    draw_text(surface, stride, fmt, 27, 48, white, "PERSONA 2: INNOCENT SIN", 1);
+    draw_text(surface, stride, fmt, 278, 48, soft, "ULUS10584 / PPSSPP", 1);
 
-    outline_box(fb, stride, fmt, 14, 10, 466, 258, bg, edge);
-    fill_rect(fb, stride, fmt, 15, 11, 465, 58, top);
-    draw_text(fb, stride, fmt, 27, 22, white, "RA-PSP", 2);
-    draw_clock(fb, stride, fmt, soft);
-    draw_text(fb, stride, fmt, 27, 48, white, "PERSONA 2: INNOCENT SIN", 1);
-    draw_text(fb, stride, fmt, 278, 48, soft, "ULUS10584 / PPSSPP", 1);
+    draw_tab(surface, stride, fmt, 22, 155, "SUMMARY", tab == TAB_SUMMARY);
+    draw_tab(surface, stride, fmt, 159, 327, "ACHIEVEMENTS", tab == TAB_ACHIEVEMENTS);
+    draw_tab(surface, stride, fmt, 331, 458, "STATUS", tab == TAB_STATUS);
 
-    draw_tab(fb, stride, fmt, 22, 155, "SUMMARY", tab == TAB_SUMMARY);
-    draw_tab(fb, stride, fmt, 159, 327, "ACHIEVEMENTS", tab == TAB_ACHIEVEMENTS);
-    draw_tab(fb, stride, fmt, 331, 458, "STATUS", tab == TAB_STATUS);
+    if (tab == TAB_SUMMARY) draw_summary(surface, stride, fmt);
+    else if (tab == TAB_ACHIEVEMENTS) draw_achievements(surface, stride, fmt, selected);
+    else draw_status(surface, stride, fmt);
 
-    if (tab == TAB_SUMMARY) draw_summary(fb, stride, fmt);
-    else if (tab == TAB_ACHIEVEMENTS) draw_achievements(fb, stride, fmt, selected);
-    else draw_status(fb, stride, fmt);
-
-    fill_rect(fb, stride, fmt, 15, 229, 465, 257, rgb(55, 36, 31));
-    draw_text(fb, stride, fmt, 26, 239, soft, "LEFT/RIGHT TABS", 1);
-    draw_text(fb, stride, fmt, 169, 239, soft, "TRIANGLE TEST POPUP", 1);
-    draw_text(fb, stride, fmt, 363, 239, soft, "O CLOSE", 1);
+    fill_rect(surface, stride, fmt, 15, 229, 465, 257, rgb(55, 36, 31));
+    draw_text(surface, stride, fmt, 26, 239, soft, "LEFT/RIGHT TABS", 1);
+    draw_text(surface, stride, fmt, 169, 239, soft, "TRIANGLE TEST POPUP", 1);
+    draw_text(surface, stride, fmt, 363, 239, soft, "O CLOSE", 1);
 }
 
-static void draw_popup(void) {
-    void *fb;
-    int stride, fmt;
+static void blit_menu(void *surface, int fmt, void *fb, int fb_stride) {
+    int y;
+    int bpp = bytes_per_pixel(fmt);
+    int width = MENU_X1 - MENU_X0;
+    for (y = MENU_Y0; y < MENU_Y1; y++) {
+        unsigned char *src = (unsigned char *)surface + (y * W + MENU_X0) * bpp;
+        unsigned char *dst = (unsigned char *)fb + (y * fb_stride + MENU_X0) * bpp;
+        memcpy(dst, src, width * bpp);
+    }
+}
+
+static void draw_popup_direct(void *fb, int stride, int fmt) {
     RGB panel = rgb(81, 52, 32);
     RGB edge = rgb(238, 194, 108);
     RGB white = rgb(250, 244, 226);
     RGB soft = rgb(198, 181, 158);
     RGB green = rgb(169, 222, 162);
-
-    if (!get_framebuffer(&fb, &stride, &fmt)) return;
-
     outline_box(fb, stride, fmt, 176, 18, 466, 82, panel, edge);
     outline_box(fb, stride, fmt, 187, 29, 229, 71, rgb(104, 70, 47), edge);
     draw_text(fb, stride, fmt, 198, 45, edge, "RA", 1);
@@ -295,12 +315,25 @@ static int worker(SceSize args, void *argp) {
     int tab = TAB_SUMMARY;
     int selected = 0;
     int popup_frames = 0;
+    int menu_dirty = 1;
+    int rendered_fmt = -1;
+    int clock_counter = 0;
+    void *menu_surface = malloc(W * H * 4);
     (void)args;
     (void)argp;
 
-    write_line("RA-PSP v0.5: worker started");
+    if (!menu_surface) {
+        write_line("ERROR: overlay buffer allocation failed");
+        return 0;
+    }
+
+    write_line("RA-PSP v0.6: worker started");
 
     for (;;) {
+        void *fb = 0;
+        int fb_stride = 0;
+        int fb_fmt = 0;
+
         memset(&pad, 0, sizeof(pad));
         if (sceCtrlPeekBufferPositive(&pad, 1) > 0) {
             unsigned int buttons = pad.Buttons;
@@ -309,21 +342,19 @@ static int worker(SceSize args, void *argp) {
                 if (!combo_main_latched) {
                     combo_main_latched = 1;
                     menu_open = !menu_open;
+                    menu_dirty = 1;
                     write_line(menu_open ? "MENU OPEN: L+R+SELECT" : "MENU CLOSED: L+R+SELECT");
                 }
-            } else {
-                combo_main_latched = 0;
-            }
+            } else combo_main_latched = 0;
 
             if ((buttons & COMBO_FALLBACK) == COMBO_FALLBACK) {
                 if (!combo_fallback_latched) {
                     combo_fallback_latched = 1;
                     menu_open = !menu_open;
+                    menu_dirty = 1;
                     write_line(menu_open ? "MENU OPEN: START+SELECT" : "MENU CLOSED: START+SELECT");
                 }
-            } else {
-                combo_fallback_latched = 0;
-            }
+            } else combo_fallback_latched = 0;
 
             if (menu_open) {
                 if ((buttons & PSP_CTRL_CIRCLE) && !(previous & PSP_CTRL_CIRCLE)) {
@@ -333,19 +364,23 @@ static int worker(SceSize args, void *argp) {
                 if ((buttons & PSP_CTRL_LEFT) && !(previous & PSP_CTRL_LEFT)) {
                     tab--;
                     if (tab < TAB_SUMMARY) tab = TAB_STATUS;
+                    menu_dirty = 1;
                 }
                 if ((buttons & PSP_CTRL_RIGHT) && !(previous & PSP_CTRL_RIGHT)) {
                     tab++;
                     if (tab > TAB_STATUS) tab = TAB_SUMMARY;
+                    menu_dirty = 1;
                 }
                 if (tab == TAB_ACHIEVEMENTS) {
                     if ((buttons & PSP_CTRL_UP) && !(previous & PSP_CTRL_UP)) {
                         selected--;
                         if (selected < 0) selected = 2;
+                        menu_dirty = 1;
                     }
                     if ((buttons & PSP_CTRL_DOWN) && !(previous & PSP_CTRL_DOWN)) {
                         selected++;
                         if (selected > 2) selected = 0;
+                        menu_dirty = 1;
                     }
                 }
                 if ((buttons & PSP_CTRL_TRIANGLE) && !(previous & PSP_CTRL_TRIANGLE)) {
@@ -353,17 +388,36 @@ static int worker(SceSize args, void *argp) {
                     write_line("TEST POPUP TRIGGERED");
                 }
             }
-
             previous = buttons;
         }
 
         sceDisplayWaitVblankStart();
         sceKernelDelayThread(1000);
 
-        if (menu_open) draw_menu(tab, selected);
-        if (popup_frames > 0) {
-            draw_popup();
-            popup_frames--;
+        if (get_framebuffer(&fb, &fb_stride, &fb_fmt)) {
+            if (menu_open) {
+                clock_counter++;
+                if (clock_counter >= 60) {
+                    clock_counter = 0;
+                    menu_dirty = 1;
+                }
+                if (rendered_fmt != fb_fmt) {
+                    rendered_fmt = fb_fmt;
+                    menu_dirty = 1;
+                }
+                if (menu_dirty) {
+                    render_menu(menu_surface, fb_fmt, tab, selected);
+                    menu_dirty = 0;
+                }
+                blit_menu(menu_surface, fb_fmt, fb, fb_stride);
+            } else {
+                clock_counter = 0;
+            }
+
+            if (popup_frames > 0) {
+                draw_popup_direct(fb, fb_stride, fb_fmt);
+                popup_frames--;
+            }
         }
     }
 
@@ -374,26 +428,22 @@ int module_start(SceSize args, void *argp) {
     SceUID th;
     (void)args;
     (void)argp;
-
-    write_line("RA-PSP v0.5: module_start");
-
-    th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x40, 0x5000, PSP_THREAD_ATTR_USER, 0);
+    write_line("RA-PSP v0.6: module_start");
+    th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x40, 0x6000, PSP_THREAD_ATTR_USER, 0);
     if (th < 0) {
         write_line("ERROR: sceKernelCreateThread failed");
         return 0;
     }
-
     if (sceKernelStartThread(th, 0, 0) < 0)
         write_line("ERROR: sceKernelStartThread failed");
     else
-        write_line("RA-PSP v0.5: worker launched");
-
+        write_line("RA-PSP v0.6: worker launched");
     return 0;
 }
 
 int module_stop(SceSize args, void *argp) {
     (void)args;
     (void)argp;
-    write_line("RA-PSP v0.5: module_stop");
+    write_line("RA-PSP v0.6: module_stop");
     return 0;
 }
