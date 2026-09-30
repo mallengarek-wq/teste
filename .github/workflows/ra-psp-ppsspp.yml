@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build PPSSPP stable native menu PRX
+      - name: Build PPSSPP VBlank-synced native menu PRX
         working-directory: ra-psp-ppsspp
         run: make clean && make -j2
 
@@ -26,7 +26,7 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP STABLE NATIVE MENU v0.5.2' \
+            'RA-PSP PPSSPP VBLANK NATIVE MENU v0.5.3' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
@@ -36,10 +36,13 @@ jobs:
             'Open menu: L + R + SELECT' \
             'Fallback: START + SELECT' \
             '' \
-            'This build intentionally uses the PSP/PPSSPP native utility dialog path.' \
-            'It does NOT write directly to the game framebuffer.' \
-            'It does NOT touch display APIs during boot.' \
+            'Same stable native utility menu as v0.5.2.' \
+            'Dialog updates are now synchronized to display VBlank.' \
+            'The worker priority is intentionally lower so game rendering happens first.' \
+            'Goal: reduce alternating game/dialog frames (visible flicker).' \
             '' \
+            'No direct framebuffer writes.' \
+            'No display access during normal game boot.' \
             'No RetroAchievements network/login yet.' \
             'No game RAM reads.' \
             '' \
@@ -49,5 +52,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.5.2-STABLE-NATIVE-MENU-DROPIN
+          name: RA-PSP-PPSSPP-v0.5.3-VBLANK-NATIVE-MENU-DROPIN
           path: artifact
