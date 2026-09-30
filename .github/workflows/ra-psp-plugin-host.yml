@@ -1,0 +1,31 @@
+name: Build RA-PSP Plugin Host
+
+on:
+  push:
+    branches: [ra-psp-diag]
+    paths:
+      - 'ra-psp-plugin-host/**'
+      - '.github/workflows/ra-psp-plugin-host.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/pspdev/pspdev-docker:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build direct-load host EBOOT
+        working-directory: ra-psp-plugin-host
+        run: make clean && make -j2
+
+      - name: Package
+        run: |
+          mkdir -p artifact/PSP/GAME/RA-PSP-HOST
+          cp ra-psp-plugin-host/EBOOT.PBP artifact/PSP/GAME/RA-PSP-HOST/EBOOT.PBP
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RA-PSP-PLUGIN-HOST
+          path: artifact
