@@ -33,8 +33,8 @@ static void show_confirmation(const char *which) {
 
     memset(&dialog, 0, sizeof(dialog));
     dialog.base.size = sizeof(dialog);
-    sceUtilityGetSystemParamInt(PSP_SYSTEMPARAM_ID_INT_LANGUAGE, &dialog.base.language);
-    sceUtilityGetSystemParamInt(PSP_SYSTEMPARAM_ID_INT_BUTTON_SWAP, &dialog.base.buttonSwap);
+    dialog.base.language = PSP_SYSTEMPARAM_LANGUAGE_ENGLISH;
+    dialog.base.buttonSwap = PSP_UTILITY_ACCEPT_CROSS;
     dialog.base.graphicsThread = 0x11;
     dialog.base.accessThread = 0x13;
     dialog.base.fontThread = 0x12;
