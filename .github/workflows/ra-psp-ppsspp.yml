@@ -1,0 +1,46 @@
+name: Build RA-PSP PPSSPP
+
+on:
+  push:
+    branches: [ra-psp-diag]
+    paths:
+      - 'ra-psp-ppsspp/**'
+      - '.github/workflows/ra-psp-ppsspp.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/pspdev/pspdev-docker:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build PPSSPP user-mode PRX
+        working-directory: ra-psp-ppsspp
+        run: make clean && make -j2
+
+      - name: Package direct-drop install
+        run: |
+          mkdir -p artifact/memstick/PSP/PLUGINS/RA-PSP
+          cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
+          cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
+          printf '%s\n' \
+            'RA-PSP PPSSPP USER-MODE TEST v0.1' \
+            '' \
+            'Extract this ZIP directly into:' \
+            'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
+            '' \
+            'Target game: Persona 2 Innocent Sin USA - ULUS10584' \
+            'Hotkey: hold L + R + SELECT for about 0.4 seconds' \
+            'Inside menu: TRIANGLE = test achievement popup; CIRCLE = close' \
+            '' \
+            'This build intentionally has NO RetroAchievements login/network yet.' \
+            'It validates PPSSPP plugin loading, in-game overlay, RTC and live game RAM first.' \
+            'If stable, rc_client/online will be added on top of this user-mode base.' \
+            > artifact/README-RA-PSP-PPSSPP.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RA-PSP-PPSSPP-USERMODE-v0.1-DROPIN
+          path: artifact
