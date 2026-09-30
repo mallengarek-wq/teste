@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build PPSSPP lazy overlay PRX
+      - name: Build PPSSPP stable native menu PRX
         working-directory: ra-psp-ppsspp
         run: make clean && make -j2
 
@@ -26,21 +26,19 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP LAZY OVERLAY v0.5' \
+            'RA-PSP PPSSPP STABLE NATIVE MENU v0.5.2' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
             '' \
             'Target: Persona 2 Innocent Sin USA - ULUS10584' \
             '' \
-            'IMPORTANT:' \
-            'This build does not call PSP display APIs during game boot.' \
-            'The overlay renderer is activated only after the hotkey is pressed.' \
-            '' \
-            'Open/close: L + R + SELECT' \
+            'Open menu: L + R + SELECT' \
             'Fallback: START + SELECT' \
-            'LEFT/RIGHT: switch tabs' \
-            'CIRCLE: close menu' \
+            '' \
+            'This build intentionally uses the PSP/PPSSPP native utility dialog path.' \
+            'It does NOT write directly to the game framebuffer.' \
+            'It does NOT touch display APIs during boot.' \
             '' \
             'No RetroAchievements network/login yet.' \
             'No game RAM reads.' \
@@ -51,5 +49,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.5-LAZY-OVERLAY-DROPIN
+          name: RA-PSP-PPSSPP-v0.5.2-STABLE-NATIVE-MENU-DROPIN
           path: artifact
