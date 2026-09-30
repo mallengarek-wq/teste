@@ -1,11 +1,13 @@
 #include <stdlib.h>
 #include <string.h>
-#include <psptypes.h>
+#include <stdint.h>
 
 #include "ra_network.h"
 
 /* Some PSPSDK distributions ship sceHttp in the libraries but don't install
- * psphttp.h in the public include path. Keep the tiny ABI surface we use here. */
+ * psphttp.h/psptypes.h in the public include path. Keep only the ABI surface
+ * required by rc_client's transport hook. */
+typedef uint64_t SceULong64;
 typedef enum { PSP_HTTP_VERSION_1_0 = 0, PSP_HTTP_VERSION_1_1 = 1 } PspHttpHttpVersion;
 typedef enum { PSP_HTTP_METHOD_GET = 0, PSP_HTTP_METHOD_POST = 1, PSP_HTTP_METHOD_HEAD = 2 } PspHttpMethod;
 typedef enum { PSP_HTTP_HEADER_OVERWRITE = 0, PSP_HTTP_HEADER_ADD = 1 } PspHttpAddHeaderMode;
