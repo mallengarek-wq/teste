@@ -8,7 +8,10 @@ CFLAGS = -O2 -G0 -Wall -Wextra -DRC_NO_THREADS -DRC_DISABLE_LUA
 CXXFLAGS = $(CFLAGS)
 ASFLAGS = $(CFLAGS)
 LDFLAGS = -nostartfiles
-LIBS = -lrcheevos -lpsputility -lpsprtc -lpspdisplay -lpspctrl -lpsphttp -lpspssl -lpspnet_apctl -lpspnet_inet -lpspnet_resolver -lpspnet -lpspsdk -lm
+
+# Keep only non-default libraries here. PSPSDK build.mak appends the core SDK
+# libraries in the correct order required by psp-fixup-imports.
+LIBS = -lrcheevos -lpsphttp -lpspssl -lm
 
 BUILD_PRX = 1
 PRX_EXPORTS = exports.exp
