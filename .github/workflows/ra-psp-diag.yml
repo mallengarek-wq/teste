@@ -33,19 +33,13 @@ jobs:
         run: |
           mkdir -p build/core
           psp-gcc -O2 -G0 -Wall -Wextra -DRC_NO_THREADS \
-            -Ithird_party/rcheevos/include \
-            -Ithird_party/rcheevos/src \
-            -Ira-psp-core \
+            -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -Ira-psp-core \
             -c ra-psp-core/ra_memory_psp.c -o build/core/ra_memory_psp.o
           psp-gcc -O2 -G0 -Wall -Wextra -DRC_NO_THREADS \
-            -Ithird_party/rcheevos/include \
-            -Ithird_party/rcheevos/src \
-            -Ira-psp-core \
+            -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -Ira-psp-core \
             -c ra-psp-core/ra_network.c -o build/core/ra_network.o
           psp-gcc -O2 -G0 -Wall -Wextra -DRC_NO_THREADS \
-            -Ithird_party/rcheevos/include \
-            -Ithird_party/rcheevos/src \
-            -Ira-psp-core \
+            -Ithird_party/rcheevos/include -Ithird_party/rcheevos/src -Ira-psp-core \
             -c ra-psp-core/ra_rc_bridge.c -o build/core/ra_rc_bridge.o
           psp-ar rcs build/core/libra_psp_core.a build/core/*.o
 
@@ -61,6 +55,10 @@ jobs:
         working-directory: ra-psp-sim
         run: make clean && make -j2
 
+      - name: Build one-time RA login EBOOT
+        working-directory: ra-psp-login
+        run: make clean && make -j2
+
       - name: Build in-game RA-PSP plugin
         working-directory: ra-psp-ingame
         run: make clean && make -j2
@@ -68,34 +66,49 @@ jobs:
       - name: Package
         run: |
           mkdir -p artifact/RA-PSP/SEPLUGINS/RA-PSP
+          mkdir -p artifact/RA-PSP/PSP/GAME/RA-PSP-LOGIN
           cp ra-psp-diag/EBOOT.PBP artifact/RA-PSP/DIAGNOSTIC_EBOOT.PBP
           cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP/ra_psp_memtest.prx
           cp ra-psp-sim/EBOOT.PBP artifact/RA-PSP/RA_PSP_NATIVE_UI_EBOOT.PBP
           cp ra-psp-sim/ra_psp_sim.elf artifact/RA-PSP/RA_PSP_NATIVE_UI.elf
+          cp ra-psp-login/EBOOT.PBP artifact/RA-PSP/PSP/GAME/RA-PSP-LOGIN/EBOOT.PBP
+          cp ra-psp-login/login.ini.example artifact/RA-PSP/SEPLUGINS/RA-PSP/login.ini.example
           cp ra-psp-ingame/ra_psp_ingame.prx artifact/RA-PSP/SEPLUGINS/RA-PSP/ra_psp_ingame.prx
-          cp ra-psp-ingame/auth.ini.example artifact/RA-PSP/SEPLUGINS/RA-PSP/auth.ini.example
           cp build/core/libra_psp_core.a artifact/RA-PSP/libra_psp_core.a
           cp build/rcheevos/librcheevos.a artifact/RA-PSP/librcheevos.a
           cp ra-psp-core/*.c ra-psp-core/*.h artifact/RA-PSP/
           printf '%s\n' \
-            'RA-PSP v0.9 IN-GAME BETA' \
+            'RA-PSP v0.9.1 IN-GAME BETA' \
             '' \
             'Core: rcheevos/rc_client v12.0.0' \
-            'Transport: PSP sceHttp HTTPS implementation' \
-            'Runtime: GAME-mode PRX' \
+            'Transport: PSP WLAN profile 1 + sceHttp/HTTPS' \
+            'Runtime: GAME-mode PRX for real PSP CFW' \
             'Menu hotkey: hold L+R+SELECT for ~400ms' \
             'Popup: driven by RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED' \
+            'Clock: PSP local RTC' \
+            'Achievements/profile/progress: live rc_client data' \
             'Hardcore: disabled' \
             '' \
-            'Install PRX at ms0:/SEPLUGINS/RA-PSP/ra_psp_ingame.prx' \
+            'FIRST LOGIN:' \
+            '1. Copy login.ini.example to ms0:/SEPLUGINS/RA-PSP/login.ini' \
+            '2. Fill username/password and exact game hash.' \
+            '3. Copy PSP/GAME/RA-PSP-LOGIN to ms0:/PSP/GAME/RA-PSP-LOGIN' \
+            '4. Run RA-PSP Login once. It creates auth.ini with the rc_client token.' \
+            '5. DELETE login.ini after success so your password is not retained.' \
+            '' \
+            'PLUGIN:' \
+            'Install ra_psp_ingame.prx at ms0:/SEPLUGINS/RA-PSP/ra_psp_ingame.prx' \
             'Add to ms0:/SEPLUGINS/GAME.TXT:' \
             'ms0:/SEPLUGINS/RA-PSP/ra_psp_ingame.prx 1' \
             '' \
-            'Copy auth.ini.example to auth.ini and insert your own RA username/token.' \
-            'Never publish your token.' \
+            'Persona 2 EP PSP hashes:' \
+            'English translation v1.0: dc90a54b3bb17c62af829ac68114e7e3' \
+            'Japanese original:        42650941b0eab3c40d31934b91595c7a' \
+            '' \
+            'Do not publish auth.ini; it contains your login token.' \
             > artifact/RA-PSP/README_CORE.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-v0.9-ingame-beta
+          name: RA-PSP-v0.9.1-ingame-beta
           path: artifact/RA-PSP
