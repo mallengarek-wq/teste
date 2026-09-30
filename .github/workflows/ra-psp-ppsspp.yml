@@ -16,6 +16,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Apply direct VRAM copy patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ra-psp-ppsspp/main.c')
+          s = p.read_text()
+          old = '''static void blit_menu(void *surface, int fmt, void *fb, int fb_stride) {
+              int y;
+              int bpp = bytes_per_pixel(fmt);
+              int width = MENU_X1 - MENU_X0;
+              for (y = MENU_Y0; y < MENU_Y1; y++) {
+                  unsigned char *src = (unsigned char *)surface + (y * W + MENU_X0) * bpp;
+                  unsigned char *dst = (unsigned char *)fb + (y * fb_stride + MENU_X0) * bpp;
+                  memcpy(dst, src, width * bpp);
+              }
+          }'''
+          new = '''static void blit_menu(void *surface, int fmt, void *fb, int fb_stride) {
+              int x, y;
+              int width = MENU_X1 - MENU_X0;
+              if (fmt == PSP_DISPLAY_PIXEL_FORMAT_8888) {
+                  for (y = MENU_Y0; y < MENU_Y1; y++) {
+                      uint32_t *src = (uint32_t *)surface + y * W + MENU_X0;
+                      volatile uint32_t *dst = (volatile uint32_t *)fb + y * fb_stride + MENU_X0;
+                      for (x = 0; x < width; x++) dst[x] = src[x];
+                  }
+              } else {
+                  for (y = MENU_Y0; y < MENU_Y1; y++) {
+                      uint16_t *src = (uint16_t *)surface + y * W + MENU_X0;
+                      volatile uint16_t *dst = (volatile uint16_t *)fb + y * fb_stride + MENU_X0;
+                      for (x = 0; x < width; x++) dst[x] = src[x];
+                  }
+              }
+          }'''
+          if old not in s:
+              raise SystemExit('blit_menu source block not found')
+          p.write_text(s.replace(old, new))
+          PY
+
       - name: Build PPSSPP user-mode PRX
         working-directory: ra-psp-ppsspp
         run: make clean && make -j2
@@ -26,7 +64,7 @@ jobs:
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
           printf '%s\n' \
-            'RA-PSP PPSSPP BUFFERED OVERLAY v0.6' \
+            'RA-PSP PPSSPP BUFFERED OVERLAY v0.6.1' \
             '' \
             'Extract this ZIP directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
@@ -40,8 +78,8 @@ jobs:
             'TRIANGLE: test popup' \
             'CIRCLE: close menu' \
             '' \
-            'Renderer change: the menu is rendered off-screen first and then blitted as a completed frame.' \
-            'This specifically addresses the partial-frame flicker seen in v0.5.' \
+            'Renderer: menu is built off-screen, then copied to VRAM with direct word stores.' \
+            'This avoids the partial-frame draw and the unreliable memcpy-to-VRAM path.' \
             '' \
             'No RetroAchievements login/network yet.' \
             'No fake achievement data is presented as real.' \
@@ -52,5 +90,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.6-BUFFERED-OVERLAY-DROPIN
+          name: RA-PSP-PPSSPP-v0.6.1-BUFFERED-OVERLAY-DROPIN
           path: artifact
