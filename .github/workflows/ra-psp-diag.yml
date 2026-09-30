@@ -29,25 +29,21 @@ jobs:
           cp ra-psp-diag/main.c artifact/RA-PSP-DIAG/main.c
           cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP-DIAG/ra_psp_memtest.prx
           cp ra-psp-prx/main.c artifact/RA-PSP-DIAG/prx_main.c
-          cat > artifact/RA-PSP-DIAG/INSTALL_PRX.txt <<'EOF'
-RA-PSP MEMTEST v0.1
-
-Real PSP/CFW intended path:
-  ms0:/seplugins/ra_psp_memtest.prx
-
-Add to game.txt:
-  ms0:/seplugins/ra_psp_memtest.prx 1
-
-Expected log:
-  ms0:/PSP/RA/logs/memory.log
-
-The test samples four 32-bit words from 0x08800000 once per second.
-This is intentionally conservative for the first in-game memory test.
-
-PPSSPP note:
-Stock PPSSPP does not necessarily emulate CFW game.txt plugin loading exactly like a real PSP.
-If the PRX does not auto-load in PPSSPP, that is a loader limitation rather than proof that the PRX itself is invalid.
-EOF
+          printf '%s\n' \
+            'RA-PSP MEMTEST v0.1' \
+            '' \
+            'Real PSP/CFW intended path:' \
+            '  ms0:/seplugins/ra_psp_memtest.prx' \
+            '' \
+            'Add to game.txt:' \
+            '  ms0:/seplugins/ra_psp_memtest.prx 1' \
+            '' \
+            'Expected log:' \
+            '  ms0:/PSP/RA/logs/memory.log' \
+            '' \
+            'The test samples four 32-bit words from 0x08800000 once per second.' \
+            'PPSSPP may not emulate CFW game.txt plugin loading exactly like real PSP.' \
+            > artifact/RA-PSP-DIAG/INSTALL_PRX.txt
 
       - uses: actions/upload-artifact@v4
         with:
