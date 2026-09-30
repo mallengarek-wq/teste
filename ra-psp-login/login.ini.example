@@ -1,0 +1,12 @@
+# RA-PSP first-time login file.
+# Rename to login.ini and copy to ms0:/SEPLUGINS/RA-PSP/
+# Run RA-PSP Login EBOOT once, then DELETE login.ini after auth.ini is generated.
+username=YOUR_RETROACHIEVEMENTS_USERNAME
+password=YOUR_RETROACHIEVEMENTS_PASSWORD
+
+# Persona 2: Eternal Punishment PSP
+# English translation v1.0
+game_hash=dc90a54b3bb17c62af829ac68114e7e3
+
+# Japanese original hash instead:
+# game_hash=42650941b0eab3c40d31934b91595c7a
