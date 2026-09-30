@@ -1,0 +1,49 @@
+name: Build ConquestWars APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK packages
+        run: yes | sdkmanager --licenses >/dev/null || true; sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Check project archive
+        run: |
+          test -f ConquestWars_Android_Tiny.zip || { echo 'Falta ConquestWars_Android_Tiny.zip na raiz do repositório'; exit 1; }
+
+      - name: Extract project
+        run: unzip -q ConquestWars_Android_Tiny.zip
+
+      - name: Build debug APK
+        working-directory: ConquestWars_Android_Tiny
+        run: gradle --no-daemon app:assembleDebug
+
+      - name: Prepare APK
+        run: cp ConquestWars_Android_Tiny/app/build/outputs/apk/debug/app-debug.apk ConquestWars.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ConquestWars-APK
+          path: ConquestWars.apk
+          if-no-files-found: error
+          retention-days: 30
