@@ -21,31 +21,42 @@ jobs:
         working-directory: ra-psp-prx
         run: make clean && make -j2
 
+      - name: Build flow simulator
+        working-directory: ra-psp-sim
+        run: make clean && make -j2
+
       - name: Package
         run: |
-          mkdir -p artifact/RA-PSP-DIAG
-          cp ra-psp-diag/EBOOT.PBP artifact/RA-PSP-DIAG/EBOOT.PBP
-          cp ra-psp-diag/ra_psp_diag.elf artifact/RA-PSP-DIAG/RA_PSP_DIAG.elf
-          cp ra-psp-diag/main.c artifact/RA-PSP-DIAG/main.c
-          cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP-DIAG/ra_psp_memtest.prx
-          cp ra-psp-prx/main.c artifact/RA-PSP-DIAG/prx_main.c
+          mkdir -p artifact/RA-PSP
+          cp ra-psp-diag/EBOOT.PBP artifact/RA-PSP/DIAGNOSTIC_EBOOT.PBP
+          cp ra-psp-prx/ra_psp_memtest.prx artifact/RA-PSP/ra_psp_memtest.prx
+          cp ra-psp-sim/EBOOT.PBP artifact/RA-PSP/SIMULATOR_EBOOT.PBP
+          cp ra-psp-sim/ra_psp_sim.elf artifact/RA-PSP/RA_PSP_SIM.elf
+          cp ra-psp-sim/main.c artifact/RA-PSP/simulator_main.c
           printf '%s\n' \
-            'RA-PSP MEMTEST v0.1' \
+            'RA-PSP FLOW SIMULATOR' \
             '' \
-            'Real PSP/CFW intended path:' \
-            '  ms0:/seplugins/ra_psp_memtest.prx' \
+            'Put SIMULATOR_EBOOT.PBP in:' \
+            '  PSP/GAME/RA-PSP-SIM/EBOOT.PBP' \
             '' \
-            'Add to game.txt:' \
-            '  ms0:/seplugins/ra_psp_memtest.prx 1' \
+            'Controls:' \
+            '  X        increase simulated game memory progress' \
+            '  TRIANGLE toggle network online/offline' \
+            '  SQUARE   reset scenario' \
+            '  CIRCLE   exit' \
             '' \
-            'Expected log:' \
-            '  ms0:/PSP/RA/logs/memory.log' \
+            'Recommended scenario:' \
+            '  1. Start offline.' \
+            '  2. Press X ten times.' \
+            '  3. Achievement popup should show SAVED OFFLINE.' \
+            '  4. Press TRIANGLE.' \
+            '  5. Queue changes to SYNCED and log records confirmation.' \
             '' \
-            'The test samples four 32-bit words from 0x08800000 once per second.' \
-            'PPSSPP may not emulate CFW game.txt plugin loading exactly like real PSP.' \
-            > artifact/RA-PSP-DIAG/INSTALL_PRX.txt
+            'Log:' \
+            '  ms0:/PSP/RA_SIM_LOG.txt' \
+            > artifact/RA-PSP/README_SIM.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-MEMTEST-v0.1
-          path: artifact/RA-PSP-DIAG
+          name: RA-PSP-FLOW-SIM-v0.1
+          path: artifact/RA-PSP
