@@ -1,17 +1,28 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <pspkernel.h>
-#include <pspsdk.h>
-#include <psputility.h>
-#include <pspnet_apctl.h>
 
 #include "ra_network.h"
+
+/*
+ * PPSSPP-specific transport.
+ *
+ * PPSSPP implements sceHttp through its host-side HTTP client. Unlike a real
+ * PSP, this plugin must NOT initialize the PSP network stack (sceNetInit,
+ * sceNetInetInit, sceNetApctlInit) or load network utility modules while a
+ * retail game is already resident in memory. Doing so reserves additional PSP
+ * user memory and can fail with SCE_KERNEL_ERROR_NO_MEMORY (0x80020190), which
+ * also starves the running game.
+ *
+ * For the emulator target we only initialize sceHttp. PPSSPP resolves and
+ * performs HTTP/HTTPS requests on the host side.
+ */
 
 typedef uint64_t SceULong64;
 typedef enum { PSP_HTTP_VERSION_1_0 = 0, PSP_HTTP_VERSION_1_1 = 1 } PspHttpHttpVersion;
 typedef enum { PSP_HTTP_METHOD_GET = 0, PSP_HTTP_METHOD_POST = 1, PSP_HTTP_METHOD_HEAD = 2 } PspHttpMethod;
 typedef enum { PSP_HTTP_HEADER_OVERWRITE = 0, PSP_HTTP_HEADER_ADD = 1 } PspHttpAddHeaderMode;
+
 extern int sceHttpInit(unsigned int);
 extern int sceHttpEnd(void);
 extern int sceHttpCreateTemplate(char*, int, int);
@@ -29,68 +40,29 @@ extern int sceHttpSetSendTimeOut(int, unsigned int);
 extern int sceHttpSetRecvTimeOut(int, unsigned int);
 extern int sceHttpAddExtraHeader(int, const char*, char*, PspHttpAddHeaderMode);
 
-#define RA_HTTP_POOL_SIZE 24000
+#define RA_HTTP_POOL_SIZE 20000
 #define RA_HTTP_CHUNK 4096
 #define RA_HTTP_MAX_RESPONSE (512 * 1024)
 
 static int g_http_initialized;
-static int g_inet_initialized;
-static int g_ap_connected;
 static int g_last_error;
 
 int ra_net_last_error(void) { return g_last_error; }
 
-static int ensure_network(void) {
-    int state = 0;
-    int i, rc;
-
-    if (g_ap_connected) return 0;
-
-    sceUtilityLoadNetModule(PSP_NET_MODULE_COMMON);
-    sceUtilityLoadNetModule(PSP_NET_MODULE_INET);
-    sceUtilityLoadNetModule(PSP_NET_MODULE_PARSEURI);
-    sceUtilityLoadNetModule(PSP_NET_MODULE_PARSEHTTP);
-    sceUtilityLoadNetModule(PSP_NET_MODULE_HTTP);
-    sceUtilityLoadNetModule(PSP_NET_MODULE_SSL);
-
-    if (!g_inet_initialized) {
-        rc = pspSdkInetInit();
-        if (rc < 0) { g_last_error = rc; return rc; }
-        g_inet_initialized = 1;
-    }
-
-    rc = sceNetApctlGetState(&state);
-    if (rc == 0 && state == 4) {
-        g_ap_connected = 1;
-        return 0;
-    }
-
-    /* PPSSPP emulates infrastructure profile 1 when WLAN/networking is enabled. */
-    rc = sceNetApctlConnect(1);
-    if (rc < 0) { g_last_error = rc; return rc; }
-
-    for (i = 0; i < 200; ++i) {
-        rc = sceNetApctlGetState(&state);
-        if (rc < 0) { g_last_error = rc; return rc; }
-        if (state == 4) {
-            g_ap_connected = 1;
-            return 0;
-        }
-        sceKernelDelayThread(50000);
-    }
-
-    g_last_error = -1001;
-    return g_last_error;
-}
-
 static int ensure_http(void) {
     int rc;
     if (g_http_initialized) return 0;
-    rc = ensure_network();
-    if (rc < 0) return rc;
+
+    /* In PPSSPP this does not allocate the old PSP net pool; it enables the
+       emulator's host-backed HTTP HLE implementation. */
     rc = sceHttpInit(RA_HTTP_POOL_SIZE);
-    if (rc < 0) { g_last_error = rc; return rc; }
+    if (rc < 0) {
+        g_last_error = rc;
+        return rc;
+    }
+
     g_http_initialized = 1;
+    g_last_error = 0;
     return 0;
 }
 
@@ -98,14 +70,6 @@ void ra_net_shutdown(void) {
     if (g_http_initialized) {
         sceHttpEnd();
         g_http_initialized = 0;
-    }
-    if (g_ap_connected) {
-        sceNetApctlDisconnect();
-        g_ap_connected = 0;
-    }
-    if (g_inet_initialized) {
-        pspSdkInetTerm();
-        g_inet_initialized = 0;
     }
 }
 
@@ -128,8 +92,9 @@ void RC_CCONV ra_net_server_call(const rc_api_request_t* request,
     if (!request || !request->url || !callback) return;
     if (ensure_http() < 0) goto done;
 
-    tmpl = sceHttpCreateTemplate("RA-PSP-PPSSPP/0.6 rcheevos", PSP_HTTP_VERSION_1_1, 0);
+    tmpl = sceHttpCreateTemplate("RA-PSP-PPSSPP/0.6.2 rcheevos", PSP_HTTP_VERSION_1_1, 0);
     if (tmpl < 0) { g_last_error = tmpl; goto done; }
+
     sceHttpSetResolveTimeOut(tmpl, 5000000);
     sceHttpSetConnectTimeOut(tmpl, 7000000);
     sceHttpSetSendTimeOut(tmpl, 7000000);
@@ -156,7 +121,8 @@ void RC_CCONV ra_net_server_call(const rc_api_request_t* request,
         goto done;
     }
 
-    if (sceHttpGetStatusCode(req, &status) < 0) status = RC_API_SERVER_RESPONSE_CLIENT_ERROR;
+    if (sceHttpGetStatusCode(req, &status) < 0)
+        status = RC_API_SERVER_RESPONSE_CLIENT_ERROR;
     response.http_status_code = status;
 
     cap = RA_HTTP_CHUNK;
@@ -175,6 +141,7 @@ void RC_CCONV ra_net_server_call(const rc_api_request_t* request,
             body = p;
             cap = new_cap;
         }
+
         n = sceHttpReadData(req, body + used, (unsigned int)(cap - used));
         if (n < 0) {
             g_last_error = n;
