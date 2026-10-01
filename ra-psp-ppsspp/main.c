@@ -11,7 +11,7 @@
 #include "ra_network.h"
 #include "ra_memory_psp.h"
 
-PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 60);
+PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 61);
 PSP_NO_CREATE_MAIN_THREAD();
 
 #define LOG_PATH "ms0:/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.log"
@@ -19,6 +19,8 @@ PSP_NO_CREATE_MAIN_THREAD();
 #define LOGIN_PATH "ms0:/PSP/PLUGINS/RA-PSP/login.ini"
 #define LEGACY_AUTH_1 "ms0:/PSP/GAME/RA-PSP-LOGIN/auth.ini"
 #define LEGACY_AUTH_2 "ms0:/SEPLUGINS/RA-PSP/auth.ini"
+#define LEGACY_LOGIN_1 "ms0:/PSP/GAME/RA-PSP-LOGIN/login.ini"
+#define LEGACY_LOGIN_2 "ms0:/SEPLUGINS/RA-PSP/login.ini"
 #define COMBO_MAIN (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT)
 #define COMBO_FALLBACK (PSP_CTRL_START | PSP_CTRL_SELECT)
 
@@ -76,6 +78,13 @@ static void trim(char* s) {
     if (p) *p = 0;
 }
 
+static void clear_credentials(void) {
+    memset(g_username, 0, sizeof(g_username));
+    memset(g_token, 0, sizeof(g_token));
+    memset(g_password, 0, sizeof(g_password));
+    memset(g_hash, 0, sizeof(g_hash));
+}
+
 static int read_config_file(const char* path, int allow_password) {
     SceUID fd;
     char buf[1200];
@@ -110,21 +119,30 @@ static int read_config_file(const char* path, int allow_password) {
     return -4;
 }
 
+static int try_config(const char* path, int allow_password) {
+    clear_credentials();
+    return read_config_file(path, allow_password);
+}
+
 static int load_credentials(void) {
     int r;
-    memset(g_username, 0, sizeof(g_username));
-    memset(g_token, 0, sizeof(g_token));
-    memset(g_password, 0, sizeof(g_password));
-    memset(g_hash, 0, sizeof(g_hash));
 
-    r = read_config_file(AUTH_PATH, 0);
+    r = try_config(AUTH_PATH, 0);
     if (r == 1) return 1;
-    r = read_config_file(LEGACY_AUTH_1, 0);
+    r = try_config(LEGACY_AUTH_1, 0);
     if (r == 1) return 1;
-    r = read_config_file(LEGACY_AUTH_2, 0);
+    r = try_config(LEGACY_AUTH_2, 0);
     if (r == 1) return 1;
-    r = read_config_file(LOGIN_PATH, 1);
+    r = try_config(LOGIN_PATH, 1);
     if (r == 1 || r == 2) return r;
+    r = try_config(LEGACY_LOGIN_1, 1);
+    if (r == 1 || r == 2) return r;
+    r = try_config(LEGACY_LOGIN_2, 1);
+    if (r == 1 || r == 2) {
+        write_line("CONFIG: legacy SEPLUGINS login.ini found");
+        return r;
+    }
+    clear_credentials();
     return -1;
 }
 
@@ -271,7 +289,7 @@ static void show_ra_menu(const char *hotkey_name) {
 
     if (g_game_state == 2 && game) {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.6 ONLINE\n\n"
+            "RA-PSP PPSSPP v0.6.1 ONLINE\n\n"
             "%s\n"
             "Usuario: %s\n\n"
             "Config: %s   Login: %s\n"
@@ -291,7 +309,7 @@ static void show_ra_menu(const char *hotkey_name) {
             now.hour, now.minutes);
     } else {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.6 ONLINE\n\n"
+            "RA-PSP PPSSPP v0.6.1 ONLINE\n\n"
             "PERSONA 2: INNOCENT SIN\n"
             "ULUS10584\n\n"
             "Config: %s\n"
@@ -299,8 +317,8 @@ static void show_ra_menu(const char *hotkey_name) {
             "Set: %s\n"
             "Rede erro: %d\n\n"
             "%s%s\n\n"
-            "auth.ini/login.ini ficam em:\n"
-            "PSP/PLUGINS/RA-PSP\n"
+            "login.ini aceito em:\n"
+            "PSP/PLUGINS/RA-PSP ou SEPLUGINS/RA-PSP\n"
             "Hora: %02d:%02d\n\n"
             "Voltar fecha este menu.",
             config_label(), login_label(),
@@ -340,7 +358,7 @@ static int worker(SceSize args, void *argp) {
     int frame_counter = 0;
     (void)args; (void)argp;
 
-    write_line("RA-PSP v0.6: worker started");
+    write_line("RA-PSP v0.6.1: worker started");
     sceKernelDelayThread(1500000);
 
     g_config_state = load_credentials();
@@ -397,7 +415,7 @@ static int worker(SceSize args, void *argp) {
 int module_start(SceSize args, void *argp) {
     SceUID th;
     (void)args; (void)argp;
-    write_line("RA-PSP v0.6: module_start");
+    write_line("RA-PSP v0.6.1: module_start");
     th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x34, 0x9000, PSP_THREAD_ATTR_USER, 0);
     if (th < 0) {
         log_code("ERROR: sceKernelCreateThread", th);
@@ -406,7 +424,7 @@ int module_start(SceSize args, void *argp) {
     if (sceKernelStartThread(th, 0, 0) < 0)
         write_line("ERROR: sceKernelStartThread failed");
     else
-        write_line("RA-PSP v0.6: worker launched");
+        write_line("RA-PSP v0.6.1: worker launched");
     return 0;
 }
 
@@ -418,6 +436,6 @@ int module_stop(SceSize args, void *argp) {
         g_client = 0;
     }
     ra_net_shutdown();
-    write_line("RA-PSP v0.6: module_stop");
+    write_line("RA-PSP v0.6.1: module_stop");
     return 0;
 }
