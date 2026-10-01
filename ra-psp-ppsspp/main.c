@@ -11,7 +11,7 @@
 #include "ra_network.h"
 #include "ra_memory_psp.h"
 
-PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 61);
+PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 63);
 PSP_NO_CREATE_MAIN_THREAD();
 
 #define LOG_PATH "ms0:/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.log"
@@ -21,8 +21,10 @@ PSP_NO_CREATE_MAIN_THREAD();
 #define LEGACY_AUTH_2 "ms0:/SEPLUGINS/RA-PSP/auth.ini"
 #define LEGACY_LOGIN_1 "ms0:/PSP/GAME/RA-PSP-LOGIN/login.ini"
 #define LEGACY_LOGIN_2 "ms0:/SEPLUGINS/RA-PSP/login.ini"
-#define COMBO_MAIN (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT)
-#define COMBO_FALLBACK (PSP_CTRL_START | PSP_CTRL_SELECT)
+
+#define COMBO_MENU (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_SELECT)
+#define COMBO_MENU_ALT (PSP_CTRL_START | PSP_CTRL_SELECT)
+#define COMBO_CONNECT (PSP_CTRL_LTRIGGER | PSP_CTRL_RTRIGGER | PSP_CTRL_TRIANGLE)
 
 static rc_client_t* g_client;
 static volatile int g_config_state;    /* 0 unknown, 1 token, 2 password, -1 missing */
@@ -30,7 +32,7 @@ static volatile int g_login_state;     /* 0 idle, 1 pending, 2 ok, -1 failed */
 static volatile int g_game_state;      /* 0 idle, 1 pending, 2 loaded, -1 failed */
 static volatile int g_online;
 static volatile int g_load_started;
-static volatile int g_last_unlock_points;
+static volatile int g_connect_started;
 static char g_username[64];
 static char g_token[128];
 static char g_password[128];
@@ -126,17 +128,11 @@ static int try_config(const char* path, int allow_password) {
 
 static int load_credentials(void) {
     int r;
-
-    r = try_config(AUTH_PATH, 0);
-    if (r == 1) return 1;
-    r = try_config(LEGACY_AUTH_1, 0);
-    if (r == 1) return 1;
-    r = try_config(LEGACY_AUTH_2, 0);
-    if (r == 1) return 1;
-    r = try_config(LOGIN_PATH, 1);
-    if (r == 1 || r == 2) return r;
-    r = try_config(LEGACY_LOGIN_1, 1);
-    if (r == 1 || r == 2) return r;
+    r = try_config(AUTH_PATH, 0); if (r == 1) return 1;
+    r = try_config(LEGACY_AUTH_1, 0); if (r == 1) return 1;
+    r = try_config(LEGACY_AUTH_2, 0); if (r == 1) return 1;
+    r = try_config(LOGIN_PATH, 1); if (r == 1 || r == 2) return r;
+    r = try_config(LEGACY_LOGIN_1, 1); if (r == 1 || r == 2) return r;
     r = try_config(LEGACY_LOGIN_2, 1);
     if (r == 1 || r == 2) {
         write_line("CONFIG: legacy SEPLUGINS login.ini found");
@@ -154,7 +150,6 @@ static void save_token(void) {
     if (!g_client) return;
     user = rc_client_get_user_info(g_client);
     if (!user || !user->token || !user->token[0]) return;
-
     n = snprintf(buf, sizeof(buf), "username=%s\ntoken=%s\ngame_hash=%s\n", g_username, user->token, g_hash);
     fd = sceIoOpen(AUTH_PATH, PSP_O_WRONLY | PSP_O_CREAT | PSP_O_TRUNC, 0666);
     if (fd >= 0) {
@@ -172,7 +167,6 @@ static void RC_CCONV on_event(const rc_client_event_t* event, rc_client_t* clien
         case RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED:
             if (event->achievement) {
                 copy_text(g_last_unlock, sizeof(g_last_unlock), event->achievement->title);
-                g_last_unlock_points = (int)event->achievement->points;
                 write_line("RA EVENT: achievement triggered");
             }
             break;
@@ -222,11 +216,18 @@ static void RC_CCONV on_game_loaded(int result, const char* error_message, rc_cl
 
 static int init_ra(void) {
     int rc;
+    if (g_client || g_connect_started) return 0;
+    g_connect_started = 1;
+    write_line("RA CONNECT: manual start");
+
     g_client = rc_client_create(ra_psp_read_memory, ra_net_server_call);
     if (!g_client) {
+        g_connect_started = 0;
+        g_login_state = -1;
         copy_text(g_last_error, sizeof(g_last_error), "rc_client_create failed");
         return -1;
     }
+
     rc_client_set_event_handler(g_client, on_event);
     rc_client_set_hardcore_enabled(g_client, 0);
     rc_client_set_allow_background_memory_reads(g_client, 0);
@@ -265,6 +266,7 @@ static const char* config_label(void) {
 }
 
 static const char* login_label(void) {
+    if (!g_connect_started) return "NAO INICIADO";
     if (g_login_state == 2) return "OK";
     if (g_login_state == 1) return "CONECTANDO";
     if (g_login_state < 0) return "FALHOU";
@@ -281,46 +283,36 @@ static void show_ra_menu(const char *hotkey_name) {
     int loops = 0;
     int init_result;
     int neterr = ra_net_last_error();
+
     memset(&summary, 0, sizeof(summary));
     if (g_client && g_game_state == 2) rc_client_get_user_game_summary(g_client, &summary);
-
     configure_dialog(&dialog);
     sceRtcGetCurrentClockLocalTime(&now);
 
     if (g_game_state == 2 && game) {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.6.1 ONLINE\n\n"
-            "%s\n"
-            "Usuario: %s\n\n"
+            "RA-PSP PPSSPP v0.6.3 SAFE ONLINE\n\n"
+            "%s\nUsuario: %s\n\n"
             "Config: %s   Login: %s\n"
             "Set: CARREGADO   Online: %s\n"
-            "Conquistas: %u/%u\n"
-            "Pontos: %u/%u\n\n"
-            "Ultima: %s%s\n"
-            "Hora: %02d:%02d\n\n"
-            "Voltar fecha este menu.",
+            "Conquistas: %u/%u\nPontos: %u/%u\n\n"
+            "Ultima: %s\nHora: %02d:%02d\n\nVoltar fecha este menu.",
             game->title ? game->title : "PERSONA 2: INNOCENT SIN",
             user && user->display_name ? user->display_name : g_username,
             config_label(), login_label(), g_online ? "SIM" : "NAO",
             summary.num_unlocked_achievements, summary.num_core_achievements,
             summary.points_unlocked, summary.points_core,
             g_last_unlock[0] ? g_last_unlock : "nenhuma nesta sessao",
-            g_last_unlock[0] ? "" : "",
             now.hour, now.minutes);
     } else {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.6.1 ONLINE\n\n"
-            "PERSONA 2: INNOCENT SIN\n"
-            "ULUS10584\n\n"
-            "Config: %s\n"
-            "Login: %s\n"
-            "Set: %s\n"
-            "Rede erro: %d\n\n"
+            "RA-PSP PPSSPP v0.6.3 SAFE ONLINE\n\n"
+            "PERSONA 2: INNOCENT SIN\nULUS10584\n\n"
+            "Config: %s\nLogin: %s\nSet: %s\nRede erro: %d\n\n"
             "%s%s\n\n"
-            "login.ini aceito em:\n"
-            "PSP/PLUGINS/RA-PSP ou SEPLUGINS/RA-PSP\n"
-            "Hora: %02d:%02d\n\n"
-            "Voltar fecha este menu.",
+            "Conectar: L + R + TRIANGLE\n"
+            "Menu: L + R + SELECT\n"
+            "Hora: %02d:%02d\n\nVoltar fecha este menu.",
             config_label(), login_label(),
             g_game_state == 1 ? "CARREGANDO" : (g_game_state == -1 ? "FALHOU" : "AGUARDANDO"),
             neterr,
@@ -353,18 +345,19 @@ static void show_ra_menu(const char *hotkey_name) {
 
 static int worker(SceSize args, void *argp) {
     SceCtrlData pad;
-    int main_latched = 0;
-    int fallback_latched = 0;
+    int menu_latched = 0;
+    int menu_alt_latched = 0;
+    int connect_latched = 0;
     int frame_counter = 0;
     (void)args; (void)argp;
 
-    write_line("RA-PSP v0.6.1: worker started");
+    write_line("RA-PSP v0.6.3: worker started");
     sceKernelDelayThread(1500000);
 
     g_config_state = load_credentials();
     if (g_config_state > 0) {
         write_line(g_config_state == 1 ? "CONFIG: token credentials found" : "CONFIG: password login found");
-        init_ra();
+        write_line("RA CONNECT: deferred until L+R+TRIANGLE");
     } else {
         write_line("CONFIG: auth.ini/login.ini missing or incomplete");
         copy_text(g_last_error, sizeof(g_last_error), "credenciais ausentes");
@@ -392,19 +385,32 @@ static int worker(SceSize args, void *argp) {
         memset(&pad, 0, sizeof(pad));
         if (sceCtrlPeekBufferPositive(&pad, 1) > 0) {
             unsigned int buttons = pad.Buttons;
-            if ((buttons & COMBO_MAIN) == COMBO_MAIN) {
-                if (!main_latched) {
-                    main_latched = 1;
+
+            if ((buttons & COMBO_CONNECT) == COMBO_CONNECT) {
+                if (!connect_latched) {
+                    connect_latched = 1;
+                    if (g_config_state > 0) {
+                        init_ra();
+                    } else {
+                        copy_text(g_last_error, sizeof(g_last_error), "credenciais ausentes");
+                        write_line("RA CONNECT: blocked - no credentials");
+                    }
+                }
+            } else connect_latched = 0;
+
+            if ((buttons & COMBO_MENU) == COMBO_MENU) {
+                if (!menu_latched) {
+                    menu_latched = 1;
                     show_ra_menu("HOTKEY OK: L+R+SELECT detected");
                 }
-            } else main_latched = 0;
+            } else menu_latched = 0;
 
-            if ((buttons & COMBO_FALLBACK) == COMBO_FALLBACK) {
-                if (!fallback_latched) {
-                    fallback_latched = 1;
+            if ((buttons & COMBO_MENU_ALT) == COMBO_MENU_ALT) {
+                if (!menu_alt_latched) {
+                    menu_alt_latched = 1;
                     show_ra_menu("HOTKEY OK: START+SELECT detected");
                 }
-            } else fallback_latched = 0;
+            } else menu_alt_latched = 0;
         }
 
         sceKernelDelayThread(16667);
@@ -415,7 +421,7 @@ static int worker(SceSize args, void *argp) {
 int module_start(SceSize args, void *argp) {
     SceUID th;
     (void)args; (void)argp;
-    write_line("RA-PSP v0.6.1: module_start");
+    write_line("RA-PSP v0.6.3: module_start");
     th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x34, 0x9000, PSP_THREAD_ATTR_USER, 0);
     if (th < 0) {
         log_code("ERROR: sceKernelCreateThread", th);
@@ -424,7 +430,7 @@ int module_start(SceSize args, void *argp) {
     if (sceKernelStartThread(th, 0, 0) < 0)
         write_line("ERROR: sceKernelStartThread failed");
     else
-        write_line("RA-PSP v0.6.1: worker launched");
+        write_line("RA-PSP v0.6.3: worker launched");
     return 0;
 }
 
@@ -436,6 +442,6 @@ int module_stop(SceSize args, void *argp) {
         g_client = 0;
     }
     ra_net_shutdown();
-    write_line("RA-PSP v0.6.1: module_stop");
+    write_line("RA-PSP v0.6.3: module_stop");
     return 0;
 }
