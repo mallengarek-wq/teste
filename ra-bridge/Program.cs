@@ -121,13 +121,6 @@ static bool IsAllowedHost(string host)
            host.EndsWith(".retroachievements.org", StringComparison.OrdinalIgnoreCase);
 }
 
-sealed class LocalRequest
-{
-    public string Path { get; init; } = "/";
-    public Dictionary<string, string> Headers { get; init; } = new(StringComparer.OrdinalIgnoreCase);
-    public byte[] Body { get; init; } = Array.Empty<byte>();
-}
-
 static async Task<LocalRequest?> ReadRequestAsync(NetworkStream stream)
 {
     const int MaxHeader = 32 * 1024;
@@ -211,4 +204,11 @@ static async Task WriteResponseAsync(NetworkStream stream, int status, string co
     await stream.WriteAsync(header);
     if (body.Length > 0) await stream.WriteAsync(body);
     await stream.FlushAsync();
+}
+
+sealed class LocalRequest
+{
+    public string Path { get; init; } = "/";
+    public Dictionary<string, string> Headers { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public byte[] Body { get; init; } = Array.Empty<byte>();
 }
