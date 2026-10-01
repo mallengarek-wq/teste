@@ -5,6 +5,7 @@ on:
     branches: [ra-psp-diag]
     paths:
       - 'ra-psp-ppsspp/**'
+      - 'ra-bridge/**'
       - '.github/workflows/ra-psp-ppsspp.yml'
   workflow_dispatch:
 
@@ -31,50 +32,93 @@ jobs:
           done
           psp-ar rcs build/rcheevos/librcheevos.a build/rcheevos/obj/*.o
 
-      - name: Build PPSSPP online plugin
+      - name: Build PPSSPP bridge plugin
         working-directory: ra-psp-ppsspp
         run: make clean && make -j2
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build self-contained Windows RA Bridge
+        run: |
+          dotnet publish ra-bridge/RA-Bridge.csproj \
+            -c Release \
+            -r win-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:DebugType=None \
+            -p:DebugSymbols=false \
+            -o build/ra-bridge
+          test -f build/ra-bridge/RA-Bridge.exe
 
       - name: Package direct-drop install
         run: |
           mkdir -p artifact/memstick/PSP/PLUGINS/RA-PSP
           cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
           cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
+          cp build/ra-bridge/RA-Bridge.exe artifact/RA-Bridge.exe
+
           printf '%s\n' \
             'username=SEU_USUARIO_RETROACHIEVEMENTS' \
             'password=SUA_SENHA_RETROACHIEVEMENTS' \
             'game_hash=dcf3cb505ca49469ea2667d0398cea10' \
             > artifact/memstick/PSP/PLUGINS/RA-PSP/login.ini.example
+
+          cat > artifact/INICIAR_RA-PSP.bat <<'BAT'
+          @echo off
+          cd /d "%~dp0"
+          if not exist "RA-Bridge.exe" (
+            echo RA-Bridge.exe nao encontrado.
+            pause
+            exit /b 1
+          )
+          start "RA-Bridge" /min "%~dp0RA-Bridge.exe"
+          timeout /t 1 /nobreak >nul
+          if exist "%~dp0PPSSPPWindows64.exe" (
+            start "" "%~dp0PPSSPPWindows64.exe"
+            exit /b 0
+          )
+          if exist "%~dp0PPSSPPWindows.exe" (
+            start "" "%~dp0PPSSPPWindows.exe"
+            exit /b 0
+          )
+          echo PPSSPPWindows64.exe nao encontrado nesta pasta.
+          echo Deixe o RA-Bridge aberto e inicie o PPSSPP manualmente.
+          pause
+          BAT
+
           printf '%s\n' \
-            'RA-PSP PPSSPP ONLINE v0.6' \
+            'RA-PSP PPSSPP v0.7 - LOCAL HTTPS BRIDGE' \
             '' \
             'Extract directly into:' \
             'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
             '' \
-            'Target: Persona 2 Innocent Sin USA - ULUS10584' \
-            'Open menu: L + R + SELECT' \
-            'Fallback: START + SELECT' \
+            'WHY RA-BRIDGE.EXE EXISTS:' \
+            'PPSSPP 1.20.x sceHttp does not implement TLS/HTTPS.' \
+            'The PSP plugin talks HTTP only to 127.0.0.1:55355.' \
+            'RA-Bridge forwards only RetroAchievements requests using Windows HTTPS.' \
             '' \
-            'FIRST LOGIN (only if auth.ini does not already exist):' \
-            '1. Rename login.ini.example to login.ini.' \
-            '2. Fill username/password.' \
-            '3. USA original hash is already filled in.' \
-            '4. Undub v1.0 hash: f61a77e87f871e717d793f9a3e5fc853' \
-            '5. Start the game. Successful password login creates auth.ini with a token.' \
-            '6. Delete login.ini after auth.ini is created.' \
+            'HOW TO START:' \
+            '1. Double-click INICIAR_RA-PSP.bat.' \
+            '2. RA-Bridge starts minimized.' \
+            '3. PPSSPP starts normally.' \
+            '4. Open Persona 2 Innocent Sin.' \
+            '5. After the game reaches its menu/gameplay, press L + R + TRIANGLE to connect.' \
+            '6. Press L + R + SELECT to open RA status.' \
             '' \
-            'The plugin also accepts legacy auth.ini locations from earlier RA-PSP builds.' \
-            'Enable Networking/WLAN in PPSSPP for online login.' \
+            'Your existing legacy login.ini is also accepted at:' \
+            'memstick\\SEPLUGINS\\RA-PSP\\login.ini' \
             '' \
-            'Menu shows live login/network/set state, real account name and real achievement summary when loaded.' \
-            'Achievement runtime calls rc_client_do_frame while the game is active.' \
-            'Unlocks are logged and shown as the last unlock in the menu; popup rendering comes next.' \
+            'The bridge binds only to 127.0.0.1 and only forwards HTTPS requests to retroachievements.org.' \
+            'It does not log request bodies, passwords or tokens.' \
             '' \
-            'Log:' \
+            'Plugin log:' \
             'memstick\\PSP\\PLUGINS\\RA-PSP\\ra_psp_ppsspp.log' \
             > artifact/README-RA-PSP-PPSSPP.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.6-ONLINE-RCCLIENT-DROPIN
+          name: RA-PSP-PPSSPP-v0.7-BRIDGE-DROPIN
           path: artifact
