@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  plugin:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/pspdev/pspdev-docker:latest
@@ -36,37 +36,62 @@ jobs:
         working-directory: ra-psp-ppsspp
         run: make clean && make -j2
 
+      - name: Prepare plugin part
+        run: |
+          mkdir -p plugin-part
+          cp ra-psp-ppsspp/ra_psp_ppsspp.prx plugin-part/ra_psp_ppsspp.prx
+          cp ra-psp-ppsspp/plugin.ini plugin-part/plugin.ini
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ra-psp-plugin-part
+          path: plugin-part
+
+  package:
+    needs: plugin
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
+      - name: Download PSP plugin part
+        uses: actions/download-artifact@v4
+        with:
+          name: ra-psp-plugin-part
+          path: plugin-part
+
       - name: Build self-contained Windows RA Bridge
+        shell: pwsh
         run: |
-          dotnet publish ra-bridge/RA-Bridge.csproj \
-            -c Release \
-            -r win-x64 \
-            --self-contained true \
-            -p:PublishSingleFile=true \
-            -p:DebugType=None \
-            -p:DebugSymbols=false \
+          dotnet publish ra-bridge/RA-Bridge.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
             -o build/ra-bridge
-          test -f build/ra-bridge/RA-Bridge.exe
+          if (-not (Test-Path 'build/ra-bridge/RA-Bridge.exe')) { throw 'RA-Bridge.exe was not produced' }
 
       - name: Package direct-drop install
+        shell: pwsh
         run: |
-          mkdir -p artifact/memstick/PSP/PLUGINS/RA-PSP
-          cp ra-psp-ppsspp/ra_psp_ppsspp.prx artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx
-          cp ra-psp-ppsspp/plugin.ini artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini
-          cp build/ra-bridge/RA-Bridge.exe artifact/RA-Bridge.exe
+          New-Item -ItemType Directory -Force -Path 'artifact/memstick/PSP/PLUGINS/RA-PSP' | Out-Null
+          Copy-Item 'plugin-part/ra_psp_ppsspp.prx' 'artifact/memstick/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.prx'
+          Copy-Item 'plugin-part/plugin.ini' 'artifact/memstick/PSP/PLUGINS/RA-PSP/plugin.ini'
+          Copy-Item 'build/ra-bridge/RA-Bridge.exe' 'artifact/RA-Bridge.exe'
 
-          printf '%s\n' \
-            'username=SEU_USUARIO_RETROACHIEVEMENTS' \
-            'password=SUA_SENHA_RETROACHIEVEMENTS' \
-            'game_hash=dcf3cb505ca49469ea2667d0398cea10' \
-            > artifact/memstick/PSP/PLUGINS/RA-PSP/login.ini.example
+          @'
+          username=SEU_USUARIO_RETROACHIEVEMENTS
+          password=SUA_SENHA_RETROACHIEVEMENTS
+          game_hash=dcf3cb505ca49469ea2667d0398cea10
+          '@.Trim() | Set-Content -Encoding ASCII 'artifact/memstick/PSP/PLUGINS/RA-PSP/login.ini.example'
 
-          cat > artifact/INICIAR_RA-PSP.bat <<'BAT'
+          @'
           @echo off
           cd /d "%~dp0"
           if not exist "RA-Bridge.exe" (
@@ -87,36 +112,36 @@ jobs:
           echo PPSSPPWindows64.exe nao encontrado nesta pasta.
           echo Deixe o RA-Bridge aberto e inicie o PPSSPP manualmente.
           pause
-          BAT
+          '@.Trim() | Set-Content -Encoding ASCII 'artifact/INICIAR_RA-PSP.bat'
 
-          printf '%s\n' \
-            'RA-PSP PPSSPP v0.7 - LOCAL HTTPS BRIDGE' \
-            '' \
-            'Extract directly into:' \
-            'E:\\SteamLibrary\\steamapps\\common\\Emuladores\\PSP\\' \
-            '' \
-            'WHY RA-BRIDGE.EXE EXISTS:' \
-            'PPSSPP 1.20.x sceHttp does not implement TLS/HTTPS.' \
-            'The PSP plugin talks HTTP only to 127.0.0.1:55355.' \
-            'RA-Bridge forwards only RetroAchievements requests using Windows HTTPS.' \
-            '' \
-            'HOW TO START:' \
-            '1. Double-click INICIAR_RA-PSP.bat.' \
-            '2. RA-Bridge starts minimized.' \
-            '3. PPSSPP starts normally.' \
-            '4. Open Persona 2 Innocent Sin.' \
-            '5. After the game reaches its menu/gameplay, press L + R + TRIANGLE to connect.' \
-            '6. Press L + R + SELECT to open RA status.' \
-            '' \
-            'Your existing legacy login.ini is also accepted at:' \
-            'memstick\\SEPLUGINS\\RA-PSP\\login.ini' \
-            '' \
-            'The bridge binds only to 127.0.0.1 and only forwards HTTPS requests to retroachievements.org.' \
-            'It does not log request bodies, passwords or tokens.' \
-            '' \
-            'Plugin log:' \
-            'memstick\\PSP\\PLUGINS\\RA-PSP\\ra_psp_ppsspp.log' \
-            > artifact/README-RA-PSP-PPSSPP.txt
+          @'
+          RA-PSP PPSSPP v0.7 - LOCAL HTTPS BRIDGE
+
+          Extraia diretamente em:
+          E:\SteamLibrary\steamapps\common\Emuladores\PSP\
+
+          POR QUE EXISTE O RA-BRIDGE.EXE:
+          O sceHttp do PPSSPP 1.20.x nao fornece TLS/HTTPS para o plugin PSP.
+          O PRX fala apenas HTTP local com 127.0.0.1:55355.
+          O RA-Bridge encaminha apenas pedidos do RetroAchievements usando HTTPS do Windows.
+
+          COMO INICIAR:
+          1. Clique duas vezes em INICIAR_RA-PSP.bat.
+          2. O RA-Bridge inicia minimizado.
+          3. O PPSSPP abre normalmente.
+          4. Abra Persona 2: Innocent Sin.
+          5. Depois de chegar ao menu/gameplay, pressione L + R + TRIANGLE para conectar.
+          6. Pressione L + R + SELECT para ver o status.
+
+          Seu login.ini antigo continua aceito em:
+          memstick\SEPLUGINS\RA-PSP\login.ini
+
+          O bridge escuta apenas em 127.0.0.1 e so encaminha HTTPS para retroachievements.org.
+          Ele nao registra corpo das requisicoes, senha ou token.
+
+          Log do plugin:
+          memstick\PSP\PLUGINS\RA-PSP\ra_psp_ppsspp.log
+          '@.Trim() | Set-Content -Encoding UTF8 'artifact/README-RA-PSP-PPSSPP.txt'
 
       - uses: actions/upload-artifact@v4
         with:
