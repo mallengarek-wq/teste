@@ -11,7 +11,7 @@
 #include "ra_network.h"
 #include "ra_memory_psp.h"
 
-PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 63);
+PSP_MODULE_INFO("RA-PSP PPSSPP", PSP_MODULE_USER, 1, 64);
 PSP_NO_CREATE_MAIN_THREAD();
 
 #define LOG_PATH "ms0:/PSP/PLUGINS/RA-PSP/ra_psp_ppsspp.log"
@@ -215,7 +215,6 @@ static void RC_CCONV on_game_loaded(int result, const char* error_message, rc_cl
 }
 
 static int init_ra(void) {
-    int rc;
     if (g_client || g_connect_started) return 0;
     g_connect_started = 1;
     write_line("RA CONNECT: manual start");
@@ -235,15 +234,13 @@ static int init_ra(void) {
 
     g_login_state = 1;
     if (g_config_state == 1)
-        rc = rc_client_begin_login_with_token(g_client, g_username, g_token, on_login, 0) ? 0 : -2;
+        rc_client_begin_login_with_token(g_client, g_username, g_token, on_login, 0);
     else
-        rc = rc_client_begin_login_with_password(g_client, g_username, g_password, on_login, 0) ? 0 : -2;
+        rc_client_begin_login_with_password(g_client, g_username, g_password, on_login, 0);
 
-    if (rc < 0) {
-        g_login_state = -1;
-        copy_text(g_last_error, sizeof(g_last_error), "could not start login");
-    }
-    return rc;
+    /* Important: rc_client may complete synchronously and return NULL even on success.
+       The callback is authoritative for g_login_state. */
+    return 0;
 }
 
 static void configure_dialog(pspUtilityMsgDialogParams *dialog) {
@@ -291,7 +288,7 @@ static void show_ra_menu(const char *hotkey_name) {
 
     if (g_game_state == 2 && game) {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.6.3 SAFE ONLINE\n\n"
+            "RA-PSP PPSSPP v0.6.4 SYNC FIX\n\n"
             "%s\nUsuario: %s\n\n"
             "Config: %s   Login: %s\n"
             "Set: CARREGADO   Online: %s\n"
@@ -306,7 +303,7 @@ static void show_ra_menu(const char *hotkey_name) {
             now.hour, now.minutes);
     } else {
         snprintf(message, sizeof(message),
-            "RA-PSP PPSSPP v0.6.3 SAFE ONLINE\n\n"
+            "RA-PSP PPSSPP v0.6.4 SYNC FIX\n\n"
             "PERSONA 2: INNOCENT SIN\nULUS10584\n\n"
             "Config: %s\nLogin: %s\nSet: %s\nRede erro: %d\n\n"
             "%s%s\n\n"
@@ -351,7 +348,7 @@ static int worker(SceSize args, void *argp) {
     int frame_counter = 0;
     (void)args; (void)argp;
 
-    write_line("RA-PSP v0.6.3: worker started");
+    write_line("RA-PSP v0.6.4: worker started");
     sceKernelDelayThread(1500000);
 
     g_config_state = load_credentials();
@@ -368,10 +365,8 @@ static int worker(SceSize args, void *argp) {
             if (g_login_state == 2 && !g_load_started) {
                 g_load_started = 1;
                 g_game_state = 1;
-                if (!rc_client_begin_load_game(g_client, g_hash, on_game_loaded, 0)) {
-                    g_game_state = -1;
-                    copy_text(g_last_error, sizeof(g_last_error), "could not start game load");
-                }
+                rc_client_begin_load_game(g_client, g_hash, on_game_loaded, 0);
+                /* Same synchronous-completion rule as login: callback owns state. */
             }
             if (g_game_state == 2) {
                 rc_client_do_frame(g_client);
@@ -421,7 +416,7 @@ static int worker(SceSize args, void *argp) {
 int module_start(SceSize args, void *argp) {
     SceUID th;
     (void)args; (void)argp;
-    write_line("RA-PSP v0.6.3: module_start");
+    write_line("RA-PSP v0.6.4: module_start");
     th = sceKernelCreateThread("RA-PSP PPSSPP Worker", worker, 0x34, 0x9000, PSP_THREAD_ATTR_USER, 0);
     if (th < 0) {
         log_code("ERROR: sceKernelCreateThread", th);
@@ -430,7 +425,7 @@ int module_start(SceSize args, void *argp) {
     if (sceKernelStartThread(th, 0, 0) < 0)
         write_line("ERROR: sceKernelStartThread failed");
     else
-        write_line("RA-PSP v0.6.3: worker launched");
+        write_line("RA-PSP v0.6.4: worker launched");
     return 0;
 }
 
@@ -442,6 +437,6 @@ int module_stop(SceSize args, void *argp) {
         g_client = 0;
     }
     ra_net_shutdown();
-    write_line("RA-PSP v0.6.3: module_stop");
+    write_line("RA-PSP v0.6.4: module_stop");
     return 0;
 }
