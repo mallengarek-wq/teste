@@ -32,6 +32,9 @@ jobs:
           done
           psp-ar rcs build/rcheevos/librcheevos.a build/rcheevos/obj/*.o
 
+      - name: Apply PPSSPP load-state frame pump fix
+        run: python3 ra-psp-ppsspp/apply_load_frame_fix.py
+
       - name: Build PPSSPP bridge plugin
         working-directory: ra-psp-ppsspp
         run: make clean && make -j2
@@ -115,15 +118,16 @@ jobs:
           '@.Trim() | Set-Content -Encoding ASCII 'artifact/INICIAR_RA-PSP.bat'
 
           @'
-          RA-PSP PPSSPP v0.7 - LOCAL HTTPS BRIDGE
+          RA-PSP PPSSPP v0.7.1 - LOAD STATE FIX + LOCAL HTTPS BRIDGE
 
           Extraia diretamente em:
           E:\SteamLibrary\steamapps\common\Emuladores\PSP\
 
-          POR QUE EXISTE O RA-BRIDGE.EXE:
-          O sceHttp do PPSSPP 1.20.x nao fornece TLS/HTTPS para o plugin PSP.
-          O PRX fala apenas HTTP local com 127.0.0.1:55355.
-          O RA-Bridge encaminha apenas pedidos do RetroAchievements usando HTTPS do Windows.
+          CORRECAO v0.7.1:
+          O rcheevos finaliza o carregamento do set atraves de rc_client_do_frame quando
+          leituras de memoria em background estao desativadas. A versao anterior so
+          chamava rc_client_do_frame depois de o set estar carregado, causando o estado
+          CARREGANDO infinito. Esta versao bombeia o cliente durante o carregamento.
 
           COMO INICIAR:
           1. Clique duas vezes em INICIAR_RA-PSP.bat.
@@ -133,8 +137,7 @@ jobs:
           5. Depois de chegar ao menu/gameplay, pressione L + R + TRIANGLE para conectar.
           6. Pressione L + R + SELECT para ver o status.
 
-          Seu login.ini antigo continua aceito em:
-          memstick\SEPLUGINS\RA-PSP\login.ini
+          Seu login/token existente continua aceito. Nao precisa refazer o login.
 
           O bridge escuta apenas em 127.0.0.1 e so encaminha HTTPS para retroachievements.org.
           Ele nao registra corpo das requisicoes, senha ou token.
@@ -145,5 +148,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RA-PSP-PPSSPP-v0.7-BRIDGE-DROPIN
+          name: RA-PSP-PPSSPP-v0.7.1-LOADFIX-DROPIN
           path: artifact
