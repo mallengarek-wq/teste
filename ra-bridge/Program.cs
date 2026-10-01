@@ -57,19 +57,19 @@ static async Task HandleClientAsync(TcpClient client, HttpClient http)
             var request = await ReadRequestAsync(stream);
             if (request == null)
             {
-                await WriteResponseAsync(stream, 400, "text/plain; charset=utf-8", "Bad request");
+                await WriteTextResponseAsync(stream, 400, "text/plain; charset=utf-8", "Bad request");
                 return;
             }
 
             if (request.Path.Equals("/health", StringComparison.OrdinalIgnoreCase))
             {
-                await WriteResponseAsync(stream, 200, "text/plain; charset=utf-8", "RA-Bridge OK");
+                await WriteTextResponseAsync(stream, 200, "text/plain; charset=utf-8", "RA-Bridge OK");
                 return;
             }
 
             if (!request.Path.Equals("/ra", StringComparison.OrdinalIgnoreCase))
             {
-                await WriteResponseAsync(stream, 404, "text/plain; charset=utf-8", "Not found");
+                await WriteTextResponseAsync(stream, 404, "text/plain; charset=utf-8", "Not found");
                 return;
             }
 
@@ -78,7 +78,7 @@ static async Task HandleClientAsync(TcpClient client, HttpClient http)
                 !target.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
                 !IsAllowedHost(target.Host))
             {
-                await WriteResponseAsync(stream, 400, "application/json", "{\"Success\":false,\"Error\":\"Invalid RA bridge target\"}");
+                await WriteTextResponseAsync(stream, 400, "application/json", "{\"Success\":false,\"Error\":\"Invalid RA bridge target\"}");
                 return;
             }
 
@@ -90,13 +90,9 @@ static async Task HandleClientAsync(TcpClient client, HttpClient http)
             {
                 upstream.Content = new ByteArrayContent(request.Body);
                 if (request.Headers.TryGetValue("x-ra-content-type", out var contentType) && !string.IsNullOrWhiteSpace(contentType))
-                {
                     upstream.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-                }
                 else
-                {
                     upstream.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
-                }
             }
 
             using var response = await http.SendAsync(upstream, HttpCompletionOption.ResponseContentRead);
@@ -104,13 +100,13 @@ static async Task HandleClientAsync(TcpClient client, HttpClient http)
             var responseType = response.Content.Headers.ContentType?.ToString() ?? "application/json";
 
             Console.WriteLine($"{DateTime.Now:HH:mm:ss} {(int)response.StatusCode} {target.Host}{target.AbsolutePath}");
-            await WriteResponseAsync(stream, (int)response.StatusCode, responseType, bytes);
+            await WriteBytesResponseAsync(stream, (int)response.StatusCode, responseType, bytes);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Bridge error: {ex.GetType().Name}: {ex.Message}");
             var safe = "{\"Success\":false,\"Error\":\"RA-Bridge HTTPS upstream failed\"}";
-            try { await WriteResponseAsync(stream, 503, "application/json", safe); } catch { }
+            try { await WriteTextResponseAsync(stream, 503, "application/json", safe); } catch { }
         }
     }
 }
@@ -180,10 +176,12 @@ static async Task<LocalRequest?> ReadRequestAsync(NetworkStream stream)
     return new LocalRequest { Path = first[1], Headers = headers, Body = body };
 }
 
-static Task WriteResponseAsync(NetworkStream stream, int status, string contentType, string text) =>
-    WriteResponseAsync(stream, status, contentType, Encoding.UTF8.GetBytes(text));
+static Task WriteTextResponseAsync(NetworkStream stream, int status, string contentType, string text)
+{
+    return WriteBytesResponseAsync(stream, status, contentType, Encoding.UTF8.GetBytes(text));
+}
 
-static async Task WriteResponseAsync(NetworkStream stream, int status, string contentType, byte[] body)
+static async Task WriteBytesResponseAsync(NetworkStream stream, int status, string contentType, byte[] body)
 {
     string reason = status switch
     {
